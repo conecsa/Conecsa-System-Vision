@@ -1,0 +1,487 @@
+services:
+  os-base:
+    image: conecsa-os-base:base
+    build:
+      context: .
+      dockerfile: os-base/Dockerfile.os-base
+    container_name: conecsa-os-base
+    # `os-base` doubles as the privileged hardware-management agent (network/Wi-Fi
+    # today; GPIO in a later migration). It serves gRPC HardwareService on :50051,
+    # consumed by inference-service.
+    command: ["python3", "-m", "agent"]
+    privileged: true
+    environment:
+      - HARDWARE_AGENT_LISTEN=0.0.0.0:50051
+    volumes:
+      - models-data:/data/models
+      - runs-data:/data/runs
+      # Host network stack — managed here, not in inference-service (the Yocto
+      # target uses systemd-networkd + wpa_supplicant, no NetworkManager/nmcli).
+      - /run/wpa_supplicant:/run/wpa_supplicant      # wpa_cli control sockets
+      - /etc/wpa_supplicant:/etc/wpa_supplicant       # persisted network blocks (PSKs)
+      - /etc/systemd/network:/etc/systemd/network      # static/DHCP .network files
+      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket  # systemd-networkd D-Bus
+      # GPIO: the agent owns the hardware. The shared-memory hot-path channel
+      # with inference-service + the host Jetson.GPIO library.
+      - gpio-shm:/run/conecsa-gpio
+      - /usr/lib/python3/dist-packages/Jetson:/usr/lib/python3/dist-packages/Jetson:ro
+      # Opt-in: share the Python env from `os` with other services. Note
+      # that named volumes are populated only on first creation — see README.
+      # - python-env:/usr/local/lib/python3.10/site-packages
+    devices:
+      # GPIO character devices for the Jetson Orin Nano (trigger + count pins).
+      - /dev/gpiochip0:/dev/gpiochip0
+      - /dev/gpiochip1:/dev/gpiochip1
+    group_add:
+      # gpio group (GID 999 on the Jetson host).
+      - "999"
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+
+  webcam-server:
+    build:
+      context: .
+      dockerfile: webcam-server/Dockerfile.webcam-server
+    container_name: conecsa-webcam-server
+    ipc: shareable
+    environment:
+      - CAMERA_INDEX=0
+      - CAPTURE_WIDTH=2560
+      - CAPTURE_HEIGHT=720
+      - CAPTURE_FRAMERATE=60
+      - RUST_LOG=info
+      - SHM_NAME=conecsa_frame_shm
+      # SHM slot must fit the LARGEST frame the camera can deliver. The stereo
+      # USB camera falls back to its native 3840x1080 RAW (12.44 MB/frame) when
+      # the requested MJPEG mode drops; the previous 8 MB default slot was too
+      # small, so every RAW frame was dropped ("RAW frame dropped ... exceeds
+      # SHM slot") → frozen stream. 16 MB covers 3840x1080x3 with headroom.
+      - SHM_SLOT_MIN_BYTES=16777216
+    # NO static `devices:` mapping. A `- /dev/video0:/dev/video0` mapping makes
+    # the container FAIL TO START when the camera is unplugged (the host node
+    # doesn't exist → "error gathering device information") — so the whole app
+    # came up broken. `privileged: true` already grants access to all /dev/video*
+    # (incl. nodes that appear on hot-plug), so webcam-server starts with no
+    # camera (publishing the `no_camera` health, no frames) and picks the camera
+    # up when it reappears (see the 5s retry loop in capture.rs). Not
+    # bind-mounting /dev — that would shadow the IPC /dev/shm.
+    privileged: true
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+
+  inference-service:
+    build:
+      context: .
+      dockerfile: inference-service/Dockerfile.inference-service
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-inference-service
+    runtime: nvidia
+    privileged: true
+    pid: host
+    ipc: "service:webcam-server"
+    environment:
+      # GPU Configuration
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      
+      # CUDA Configuration
+      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_MODULE_LOADING=LAZY
+      - CUDA_LAUNCH_BLOCKING=0
+      
+      # Application Configuration
+      - PYTHONUNBUFFERED=1
+      - SHM_NAME=conecsa_frame_shm
+
+      # Camera defaults — must stay in sync with the webcam-server values above
+      - CAMERA_INDEX=0
+      - CAPTURE_WIDTH=2560
+      - CAPTURE_HEIGHT=720
+      - CAPTURE_FRAMERATE=60
+      - CAPTURE_AUTO_EXPOSURE=false
+      - CAPTURE_EXPOSURE_TIME=166
+      # Reduced-scale decode for inference/overlay (1=full, 2=half, 4=quarter).
+      # The model resizes to ~640 anyway, so decoding at reduced scale keeps the
+      # GPU fed without the cost of a full-resolution JPEG decode per frame.
+      - PROCESSING_DECODE_SCALE=2
+      # Stereo combine: split the side-by-side (left|right) frame and blend the
+      # two eyes into one image for display + detection. "none" to disable.
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - CAPTURE_RGB_RED=128
+      - CAPTURE_RGB_GREEN=128
+      - CAPTURE_RGB_BLUE=128
+      - CAPTURE_GAMMA=100
+      - CAPTURE_GAIN=0
+
+      - PYTORCH_USE_FP16=1
+      - PYTORCH_DISABLE_CUDNN=0
+      - PYTORCH_PERF_MODE=1
+      - PYTORCH_SYNC_CUDA=0
+      - LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/nvidia:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/libcusparseLt/12:/usr/local/cuda/lib64:/usr/local/cuda-12.6/targets/aarch64-linux/lib
+      
+      # Optional: Force TensorRT runtime
+      - TENSORRT_RUNTIME=1
+      - TENSORRT_AUTO_REBUILD_ENGINE=1
+      - TENSORRT_WORKSPACE_MB=192
+      # Number of parallel TensorRT inference contexts. >1 runs that many worker
+      # subprocesses (ports 5501, 5502, …) and that many decode+infer pipeline
+      # lanes, overlapping CPU/GPU across cores. Measured ~1.8x GPU scaling at 2.
+      - TENSORRT_CONTEXTS=2
+      # waitress task-thread pool. Must exceed the worst-case concurrent
+      # long-lived connections (per web tab: MJPEG video + unified SSE; plus
+      # Node-RED event/stats streams) with headroom for normal requests, or
+      # the server queues every request once streams saturate the pool.
+      - WAITRESS_THREADS=32
+
+      # Memory containment via jemalloc (paired with zram-swap + THP=madvise
+      # on the Yocto host). Replaces the earlier attempt to cap glibc arenas
+      # (MALLOC_ARENA_MAX=2), which trimmed RSS but serialized every
+      # cv2.imdecode/imencode malloc/free on a single mutex and dropped FPS
+      # from 27 to 10. jemalloc:
+      #   - multi-thread performance without the few-arenas bottleneck;
+      #   - returns pages to the OS via dirty_decay_ms/muzzy_decay_ms (default
+      #     10s; 5s here to favor low RSS) without needing malloc_trim-style
+      #     hacks;
+      #   - background_thread=true enables the internal thread that runs the
+      #     decay periodically instead of only during free().
+      # libjemalloc2 is installed in os-base/Dockerfile.os-base. LD_PRELOAD propagates
+      # to every subprocess (TRT worker, _pt_onnx_converter).
+      # PYTORCH_CUDA_ALLOC_CONF only affects the .pt -> .onnx conversion subprocess.
+      - LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2
+      - MALLOC_CONF=background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+    # Headless: no HTTP port. The control surface is gRPC on :50061 (reached by
+    # the api-gateway over the compose network); the processed frames cross via
+    # SHM. The public API/SSE/MJPEG is served by the api-gateway.
+    volumes:
+      # Shared models volume (owned by the `os` container)
+      - models-data:/data/models
+      # Offline detection buffer (store-and-forward while the hub is offline)
+      - detections-data:/data/detections
+      # - python-env:/usr/local/lib/python3.10/site-packages:ro  # opt-in, see README
+
+      # NOTE: do NOT bind-mount /usr/lib/aarch64-linux-gnu/{nvidia,tegra}
+      # as whole directories — those paths are managed by `runtime: nvidia`
+      # + `tegra-container-passthrough` (camera/V4L2/GStreamer/EGL libs).
+      # A directory mount there lands read-only and the runtime then fails
+      # to mknod its own file injections inside it.
+      #
+      # TensorRT / cuDNN / cuDLA are NOT in tegra-container-passthrough.
+      # They live under /usr/lib/ on this Yocto rootfs (not under the
+      # Debian-style /usr/lib/aarch64-linux-gnu/). We bind-mount each
+      # individual `.so` file from the host's /usr/lib/ into the path the
+      # container's runtime-link uses (/usr/lib/aarch64-linux-gnu/).
+
+      # TensorRT 10 (tensorrt-core, tensorrt-plugins-prebuilt)
+      - /usr/lib/libnvinfer.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer.so.10.3.0:ro
+      - /usr/lib/libnvinfer.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer.so.10:ro
+      - /usr/lib/libnvinfer.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer.so:ro
+      - /usr/lib/libnvinfer_plugin.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so.10.3.0:ro
+      - /usr/lib/libnvinfer_plugin.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so.10:ro
+      - /usr/lib/libnvinfer_plugin.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_plugin.so:ro
+      - /usr/lib/libnvinfer_builder_resource.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_builder_resource.so.10.3.0:ro
+      - /usr/lib/libnvinfer_builder_resource.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_builder_resource.so.10:ro
+      - /usr/lib/libnvinfer_builder_resource.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvinfer_builder_resource.so:ro
+      - /usr/lib/libnvonnxparser.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvonnxparser.so.10.3.0:ro
+      - /usr/lib/libnvonnxparser.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvonnxparser.so.10:ro
+      - /usr/lib/libnvonnxparser.so.10.3.0:/usr/lib/aarch64-linux-gnu/libnvonnxparser.so:ro
+
+      # cuBLAS — host JetPack build (the container's SBSA cublas fails on
+      # Tegra); needed if torch ever touches the GPU in this container (the
+      # .pt→.onnx converter), harmless otherwise.
+      - /usr/local/cuda-12.6/lib/libcublas.so.12.6.1.4:/usr/lib/aarch64-linux-gnu/libcublas.so.12:ro
+      - /usr/local/cuda-12.6/lib/libcublasLt.so.12.6.1.4:/usr/lib/aarch64-linux-gnu/libcublasLt.so.12:ro
+
+      # cuDNN 9 (cudnn package)
+      - /usr/lib/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so.9:ro
+      - /usr/lib/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so:ro
+      - /usr/lib/libcudnn_adv.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9:ro
+      - /usr/lib/libcudnn_adv.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so:ro
+      - /usr/lib/libcudnn_cnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9:ro
+      - /usr/lib/libcudnn_cnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so:ro
+      - /usr/lib/libcudnn_ops.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9:ro
+      - /usr/lib/libcudnn_ops.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so:ro
+      - /usr/lib/libcudnn_graph.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9:ro
+      - /usr/lib/libcudnn_graph.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so:ro
+      - /usr/lib/libcudnn_heuristic.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9:ro
+      - /usr/lib/libcudnn_heuristic.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so:ro
+      - /usr/lib/libcudnn_engines_precompiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9:ro
+      - /usr/lib/libcudnn_engines_precompiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so:ro
+      - /usr/lib/libcudnn_engines_runtime_compiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9:ro
+      - /usr/lib/libcudnn_engines_runtime_compiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so:ro
+
+      # cuDLA (libcudla package — installs under the CUDA toolkit prefix,
+      # not /usr/lib/, unlike TensorRT/cuDNN)
+      - /usr/local/cuda-12.6/lib/libcudla.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcudla.so.1:ro
+      - /usr/local/cuda-12.6/lib/libcudla.so.1.0.0:/usr/lib/aarch64-linux-gnu/libcudla.so:ro
+
+      # GPIO is owned by the `os` agent now; inference only shares the
+      # shared-memory hot-path channel (trigger gate + count output).
+      - gpio-shm:/run/conecsa-gpio
+
+    depends_on:
+      - os-base
+      - webcam-server
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      # Headless: check the gRPC control server is accepting connections.
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50061), timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # API gateway — thin HTTP↔gRPC/SHM interface in front of the headless
+  # inference pipeline. Runs ADDITIVELY for now (own host port 5010) so it can
+  # be validated against the still-serving monolith before the cutover flips
+  # inference headless and moves the gateway to the external port.
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile.api-gateway
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-api-gateway
+    # Share the SHM namespace with webcam-server (camera ring) and
+    # inference-service (processed ring) — both feeds cross via /dev/shm.
+    ipc: "service:webcam-server"
+    environment:
+      - INFERENCE_GRPC_ADDR=inference-service:50061
+      - HARDWARE_AGENT_ADDR=os-base:50051
+      - TRAINING_GRPC_ADDR=training-service:50071
+      # Stereo combine for the training preview (matches inference-service).
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - SHM_NAME=conecsa_frame_shm
+      - PROCESSED_SHM_NAME=conecsa_processed_shm
+      - GATEWAY_PORT=5000
+      # Device software version, surfaced on /api/v1/status + /api/v1/health for
+      # the conecsa-hub-vision hub to display.
+      - DEVICE_VERSION=2026.2-LTS
+      # Thread-per-connection: above the worst-case concurrent MJPEG + SSE
+      # streams (per web tab: processed video + unified SSE; plus Node-RED).
+      - WAITRESS_THREADS=32
+      # Auto-exit training mode after this much client silence (a dead hub
+      # must not leave the device with inference stopped). 0 disables.
+      - TRAINING_ORPHAN_TIMEOUT_SEC=1800
+      # mDNS for conecsa-hub-vision discovery is advertised by the HOST
+      # avahi-daemon (see meta-conecsa/.../conecsa-hub.avahi.service), which
+      # reaches the LAN. This container is on a bridge network, so its
+      # in-container advertiser would only announce the unreachable bridge IP —
+      # disable it to avoid a misleading/duplicate registration.
+      - HUB_MDNS_ENABLED=0
+      # Device enrollment: the gateway generates the device key + CSR under
+      # CONECSA_CERT_DIR (shared with nginx) and serves /enroll/*. Pairing needs
+      # no secret by default (the first hub on the trusted LAN to pair wins — one
+      # click in the hub); once paired, mTLS locks the device to that hub. Set
+      # DEVICE_PAIR_TOKEN only to require a shared pairing secret.
+      - CONECSA_CERT_DIR=/etc/conecsa/certs
+      - DEVICE_PAIR_TOKEN=${DEVICE_PAIR_TOKEN:-}
+    # No published ports: the gateway is reached only via the device's nginx on
+    # the Docker network, and externally only through the hub over mTLS on :443.
+    # It still listens on :5000 inside the container (nginx upstream + healthcheck).
+    volumes:
+      # Device key/CSR + hub-signed cert/CA, shared with the nginx TLS terminator.
+      - conecsa-certs:/etc/conecsa/certs
+      # Host hostname = the avahi mDNS instance name; the gateway uses it as the
+      # device id so enrollment, the cert SAN and discovery all agree on one id.
+      - /etc/hostname:/etc/conecsa/host_hostname:ro
+    depends_on:
+      - os-base
+      - webcam-server
+      - inference-service
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Training service — on-device YOLO26 dataset building + training. Headless
+  # gRPC on :50071, relayed by the api-gateway (/api/v1/training/*). Reads the
+  # camera ring for dataset capture (shared ipc) and uploads the trained .pt
+  # back through the gateway. The GPU is shared by handover: the gateway calls
+  # inference ReleaseRuntime before training and ResumeRuntime after.
+  training-service:
+    build:
+      context: .
+      dockerfile: training-service/Dockerfile.training-service
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-training-service
+    runtime: nvidia
+    ipc: "service:webcam-server"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_MODULE_LOADING=LAZY
+      - PYTHONUNBUFFERED=1
+      - SHM_NAME=conecsa_frame_shm
+      # Stereo combine — keep in sync with inference-service so captured
+      # dataset images match the geometry the live detector sees.
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - GATEWAY_ADDR=http://api-gateway:5000
+      # Training knobs sized for the Orin Nano 8GB.
+      - TRAIN_BATCH=4
+      # 0 = single-process data loading. The shared (small) /dev/shm from
+      # webcam-server's IPC namespace cannot back DataLoader worker tensors.
+      - TRAIN_WORKERS=0
+      # Liveness watchdog: kills the trainer after this long with NO output
+      # (a hang), not a cap on total duration — long runs are legitimate.
+      # Set TRAIN_TIMEOUT_SEC to re-enable an overall wall-clock cap.
+      - TRAIN_STALL_TIMEOUT_SEC=3600
+      # Baked into the image from training-service/assets/ at build time
+      # (operator downloads the HF-gated file locally before building).
+      - SAM3_CHECKPOINT=/app/training-service/assets/sam3.pt
+      - LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/nvidia:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/libcusparseLt/12:/usr/local/cuda/lib64:/usr/local/cuda-12.6/targets/aarch64-linux/lib
+      # Same jemalloc containment as inference-service; LD_PRELOAD propagates
+      # to the trainer/SAM subprocesses where torch actually runs.
+      - LD_PRELOAD=/usr/lib/aarch64-linux-gnu/libjemalloc.so.2
+      - MALLOC_CONF=background_thread:true,dirty_decay_ms:5000,muzzy_decay_ms:5000
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+    volumes:
+      - training-data:/data/training
+      # cuBLAS — the container's CUDA toolkit is the SBSA (server) variant
+      # whose cublas fails on the Tegra iGPU (CUBLAS_STATUS_ALLOC_FAILED at
+      # cublasCreate, any version). Bind-mount the host JetPack build, exactly
+      # like cuDNN below. Required by torch matmuls (SAM3 + YOLO training).
+      - /usr/local/cuda-12.6/lib/libcublas.so.12.6.1.4:/usr/lib/aarch64-linux-gnu/libcublas.so.12:ro
+      - /usr/local/cuda-12.6/lib/libcublasLt.so.12.6.1.4:/usr/lib/aarch64-linux-gnu/libcublasLt.so.12:ro
+      # cuDNN 9 — torch conv kernels need the host cuDNN (same bind-mount set
+      # as inference-service; the TensorRT mounts are NOT needed here).
+      - /usr/lib/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so.9:ro
+      - /usr/lib/libcudnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn.so:ro
+      - /usr/lib/libcudnn_adv.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so.9:ro
+      - /usr/lib/libcudnn_adv.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_adv.so:ro
+      - /usr/lib/libcudnn_cnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so.9:ro
+      - /usr/lib/libcudnn_cnn.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_cnn.so:ro
+      - /usr/lib/libcudnn_ops.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so.9:ro
+      - /usr/lib/libcudnn_ops.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_ops.so:ro
+      - /usr/lib/libcudnn_graph.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so.9:ro
+      - /usr/lib/libcudnn_graph.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_graph.so:ro
+      - /usr/lib/libcudnn_heuristic.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so.9:ro
+      - /usr/lib/libcudnn_heuristic.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_heuristic.so:ro
+      - /usr/lib/libcudnn_engines_precompiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so.9:ro
+      - /usr/lib/libcudnn_engines_precompiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_precompiled.so:ro
+      - /usr/lib/libcudnn_engines_runtime_compiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so.9:ro
+      - /usr/lib/libcudnn_engines_runtime_compiled.so.9:/usr/lib/aarch64-linux-gnu/libcudnn_engines_runtime_compiled.so:ro
+    depends_on:
+      - os-base
+      - webcam-server
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50071), timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  system-vision:
+    build:
+      context: .
+      dockerfile: system-vision/Dockerfile.system-vision
+    container_name: conecsa-system-vision
+    environment:
+      # Legacy/unused for the WASM build (the frontend resolves the API host at
+      # runtime via get_api_base_url()); points at the api-gateway for clarity.
+      - API_BASE_URL=${API_BASE_URL:-http://api-gateway:5000}
+    ports:
+      # Only the :443 mTLS terminator is published, so the device is reachable
+      # solely through the hub. nginx still listens on :80 inside the container
+      # for the healthcheck.
+      - "${SYSTEM_VISION_TLS_PORT:-443}:443"
+    volumes:
+      # Shared with api-gateway: device key/CSR (written by the gateway during
+      # enrollment) and the hub-signed cert + CA (read by nginx for mTLS).
+      - conecsa-certs:/etc/conecsa/certs
+    depends_on:
+      - inference-service
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  flow:
+    build:
+      context: ./flow
+      dockerfile: Dockerfile
+    container_name: conecsa-flow
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      # Single source of truth for the API base URL the Conecsa nodes call.
+      # The nodes resolve it as: per-node config → INFERENCE_URL → built-in
+      # default (http://api-gateway:5000). Repoint the whole flow with one var.
+      - INFERENCE_URL=${INFERENCE_URL:-http://api-gateway:5000}
+    # No published ports: Node-RED is reached only via the device's nginx /flow
+    # proxy. It still listens on :1880 inside the container.
+    volumes:
+      - flow-data:/data
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      # Node-RED serves under /flow (httpAdminRoot); "/" returns 404.
+      test: ["CMD", "wget", "-qO-", "http://localhost:1880/flow/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  conecsa-network:
+    driver: bridge
+
+volumes:
+  models-data:
+    name: conecsa-models-data
+  detections-data:
+    name: conecsa-detections-data
+  runs-data:
+    name: conecsa-runs-data
+  training-data:
+    name: conecsa-training-data
+  gpio-shm:
+    name: conecsa-gpio-shm
+  python-env:
+    name: conecsa-python-env
+  flow-data:
+    name: conecsa-flow-data
+  # Device TLS material (key/CSR + hub-signed cert + CA), shared by api-gateway
+  # and the nginx TLS terminator. Persists enrollment across restarts.
+  conecsa-certs:
+    name: conecsa-certs

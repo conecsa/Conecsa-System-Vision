@@ -1,0 +1,54 @@
+# ============================================================================
+# Inference service image. Inherits the shared ML stack (CUDA + Python + torch
+# + tensorrt + pycuda + opencv + ultralytics + …) from conecsa-os-base:base.
+#
+# This Dockerfile adds only the service-specific layer: the Flask/Waitress
+# web stack, Jetson.GPIO bindings, application code and the compiled proto
+# stubs.
+# ============================================================================
+
+FROM base
+
+WORKDIR /app
+
+# Service-specific Python deps (web stack + Jetson hardware bindings).
+COPY inference-service/requirements.txt /app/
+RUN pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt
+
+ENV PYTHONPATH=/app/inference-service:/usr/lib/python3.10/dist-packages:/usr/local/lib/python3.10/dist-packages
+ENV TENSORRT_WORKER_PORT=5501
+
+# Application code
+COPY inference-service/ /app/inference-service/
+
+# Compile proto files using grpc_tools.protoc (installed in conecsa-os-base:base)
+# so the generated stubs are compatible with the protobuf runtime.
+COPY proto/ /app/proto/
+RUN mkdir -p /app/inference-service/api/proto && \
+    python3 -m grpc_tools.protoc \
+        -I/app/proto \
+        --python_out=/app/inference-service/api/proto \
+        --pyi_out=/app/inference-service/api/proto \
+        --grpc_python_out=/app/inference-service/api/proto \
+        /app/proto/*.proto && \
+    touch /app/inference-service/api/proto/__init__.py
+
+# Compile sources to bytecode and drop the .py files so the production image
+# ships only .pyc next to the (deleted) .py location.
+RUN python3 -m compileall -b -q /app/inference-service && \
+    find /app/inference-service -name "*.py" -delete
+
+# Ensure the shared models directory exists (the named volume is mounted here
+# at runtime).
+RUN mkdir -p /data/models
+
+# Headless: the only surface is the gRPC control server (proto/inference.proto).
+# The api-gateway owns all HTTP/SSE/MJPEG now.
+EXPOSE 50061
+WORKDIR /app/inference-service
+
+# Run headless: the `main` module starts the pipeline + gRPC server at module
+# level and then blocks (no Flask/waitress). Use `-m main` (not `main.py`): the
+# build compiles to .pyc and deletes the .py sources, so only the module is
+# importable. `exec` keeps python as PID 1 so docker stop signals reach it.
+CMD ["sh", "-c", "exec python3 -m main"]

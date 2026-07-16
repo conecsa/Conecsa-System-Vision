@@ -1,0 +1,4 @@
+# /dev/gpiochip* accessible to GID 999. On this Yocto image that GID is
+# created by systemd/udev as the "render" group; docker-compose uses
+# group_add "999" to grant container access.
+SUBSYSTEM=="gpio", KERNEL=="gpiochip[0-9]*", GROUP="render", MODE="0660"

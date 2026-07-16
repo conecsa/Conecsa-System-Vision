@@ -1,0 +1,254 @@
+syntax = "proto3";
+
+package inference;
+
+// Control + telemetry contract between the API gateway (client) and the
+// headless inference-service (server). The per-frame media (raw + processed
+// JPEG) does NOT travel over gRPC — it crosses via POSIX shared memory. Only
+// infrequent control calls and low-rate event/stats streams use this service.
+//
+// This mirrors the existing REST surface (/start /stop /threshold /status
+// /trigger/* /counter/* /stats* /events/stream /detections/snapshot) so the
+// gateway can translate HTTP↔gRPC without changing the external contract.
+
+message Empty {}
+
+message Result {
+  bool success = 1;
+  string message = 2;
+}
+
+// ── Detection control ─────────────────────────────────────────────────────────
+
+message Stats {
+  float fps = 1;
+  float inference_time = 2;        // milliseconds
+  uint32 detections = 3;
+  uint64 frames_with_detections = 4;
+}
+
+message StatusResponse {
+  reserved 5;  // was: bool using_npu (Jetson Orin Nano has no NPU)
+  bool is_running = 1;
+  string model = 2;
+  float confidence_threshold = 3;
+  float overlay_threshold = 4;
+  string acceleration_type = 6;
+  string runtime_type = 7;
+  bool trigger_enabled = 8;
+  uint32 detection_count = 9;
+  Stats stats = 10;
+  // webcam-server SHM health == "capturing". `optional` on purpose: a plain
+  // proto3 bool is indistinguishable from "absent", so an inference-service
+  // that predates this field would decode as false and make the gateway refuse
+  // every Start (409) during a rolling upgrade. Unset means "producer has no
+  // camera gate" → treat as connected, which is how it behaved before the gate.
+  optional bool camera_connected = 11;
+}
+
+message ThresholdRequest { float threshold = 1; }
+
+message CounterResponse {
+  uint32 count = 1;
+  bool trigger_enabled = 2;
+}
+
+message SnapshotRequest {
+  bool include_frame = 1;          // include the base64 processed frame (default true)
+  bool include_raw_frame = 2;      // include the base64 clean frame (no overlay), for dataset ingest
+  // True only when the pull came from the paired hub (the gateway sets it from
+  // the mTLS terminator's verified-client header). Only hub pulls feed the
+  // offline-buffer heartbeat — local consumers (Flow nodes, scripts) polling
+  // the snapshot must not make the device believe the hub is online.
+  bool hub_pull = 3;
+}
+message SnapshotResponse {
+  string json = 1;                 // full snapshot JSON (DetectionService owns the schema); gateway relays verbatim
+}
+
+// Store-and-forward buffer: detections recorded on disk while the hub was not
+// polling, drained by the hub on reconnect and deleted only after it acks.
+message BacklogRequest {
+  uint32 limit = 1;                // page size (0 → service default)
+}
+message BacklogResponse {
+  string json = 1;                 // {"records":[...], "device_now": f, "pending": n}; gateway relays verbatim
+}
+message BacklogAckRequest {
+  repeated int64 ids = 1;          // buffered-record ids persisted by the hub; delete is idempotent
+}
+
+// ── Model activation (driven by model-service once it is extracted) ──────────
+
+message ReloadModelRequest {
+  string model_path = 1;
+  string classes_path = 2;
+  string areas_path = 3;
+  string settings_path = 4;
+}
+
+message DetectionArea {
+  string json = 1;                 // opaque area JSON (schema owned by model-service)
+}
+message SetDetectionAreasRequest { repeated DetectionArea areas = 1; }
+message SetSettingsRequest { string json = 1; }
+
+// ── Events / stats streams (re-published by the gateway on its unified SSE) ──
+
+message Event {
+  uint64 version = 1;
+  string type = 2;
+  double timestamp = 3;
+  string source = 4;
+  repeated string keys = 5;
+  string data = 6;                 // JSON-encoded payload
+}
+
+message StatsUpdate {
+  uint64 version = 1;
+  Stats stats = 2;
+}
+
+// ── Model management (stays inference-side: activation reloads the live
+//    detector, so it cannot leave the process that owns the pipeline) ─────────
+
+message ModelInfo {
+  string name = 1;
+  string path = 2;
+  uint64 size = 3;
+  double modified = 4;
+  bool is_active = 5;
+}
+message ModelList { repeated ModelInfo models = 1; }
+
+message ModelName { string name = 1; }
+
+// Client-streaming upload: first message carries the metadata, the rest carry
+// file bytes (mirrors the legacy detection.proto ModelChunk pattern). The
+// reply carries a JSON blob the gateway relays verbatim (ModelService owns the
+// schema), plus the intended HTTP status so the gateway stays a pure relay.
+message ModelUploadMeta {
+  string filename = 1;
+  uint32 imgsz = 2;             // image size for .pt conversion (0 → service default 640)
+}
+message ModelChunk {
+  oneof data {
+    ModelUploadMeta meta = 1;   // exactly one, first
+    bytes chunk = 2;            // file bytes, in order
+  }
+}
+message UploadResult {
+  bool ok = 1;
+  uint32 http_status = 2;       // intended HTTP status (202 converting / 200 loaded / error)
+  string json = 3;              // full upload result JSON; gateway relays verbatim
+}
+
+// Server-streaming download: raw file bytes of one model, in order
+// (mirrors training.proto DatasetExportChunk).
+message ModelFileChunk { bytes chunk = 1; }
+
+message ConversionJob {
+  string job_id = 1;
+  string original_filename = 2;
+  string status = 3;            // ConversionStatus value (pending/converting_*/done/failed)
+  uint32 progress = 4;          // 0-100
+  string message = 5;
+  string error = 6;
+  string engine_filename = 7;   // basename after conversion (when done)
+  double started_at = 8;
+}
+message ConversionList { repeated ConversionJob jobs = 1; }
+message ConversionId { string job_id = 1; }
+
+service ModelControl {
+  rpc ListModels(Empty) returns (ModelList);
+  rpc SelectModel(ModelName) returns (Result);     // activate_model: reloads the live detector
+  rpc DeleteModel(ModelName) returns (Result);
+  rpc ListConversions(Empty) returns (ConversionList);
+  rpc GetConversion(ConversionId) returns (ConversionJob);
+  rpc UploadModel(stream ModelChunk) returns (UploadResult);
+  rpc DownloadModel(ModelName) returns (stream ModelFileChunk);
+}
+
+// ── Classes + detection areas (per-model state consumed by the live detector) ──
+
+message ClassList { repeated string classes = 1; }
+
+// Area ops return the full areas state (JSON: {"areas":[...]}) so the gateway
+// can relay it verbatim, matching the REST controller's state response.
+message AreaResult {
+  bool ok = 1;
+  string state_json = 2;
+}
+message AreaId { string area_id = 1; }
+message AreaShape { string area_id = 1; string shape = 2; }
+message AreaCommandRequest { string area_id = 1; string action = 2; }
+
+// Config blobs are variadic dicts; carried as JSON so the gateway relays the
+// HTTP body/response verbatim (still gRPC, just not field-by-field typed).
+message ConfigJson { string json = 1; }
+
+service ManagementControl {
+  rpc GetClasses(Empty) returns (ClassList);
+  rpc SetClasses(ClassList) returns (Result);
+  rpc ClearClasses(Empty) returns (Result);
+
+  rpc GetConfig(Empty) returns (ConfigJson);
+  rpc UpdateConfig(ConfigJson) returns (Result);
+
+  rpc GetCamera(Empty) returns (ConfigJson);
+  rpc UpdateCamera(ConfigJson) returns (Result);
+
+  rpc ListAreas(Empty) returns (AreaResult);
+  rpc CreateArea(Empty) returns (AreaResult);
+  rpc DeleteArea(AreaId) returns (AreaResult);
+  rpc SaveArea(AreaId) returns (AreaResult);
+  rpc EditArea(AreaId) returns (AreaResult);
+  rpc DiscardArea(AreaId) returns (AreaResult);
+  rpc SetAreaShape(AreaShape) returns (AreaResult);
+  rpc AreaCommand(AreaCommandRequest) returns (AreaResult);
+
+  // GPU handover for the training-service: ReleaseRuntime stops detection and
+  // terminates the TensorRT worker subprocesses so their CUDA memory returns
+  // to the system (the WorkerClient cache survives — workers self-heal and
+  // reload the engine on the next request). ResumeRuntime re-activates the
+  // current model and restarts detection. Both are idempotent. ReleaseRuntime
+  // refuses while a model conversion is running (the engine build needs the
+  // worker).
+  rpc ReleaseRuntime(Empty) returns (Result);
+  rpc ResumeRuntime(Empty) returns (Result);
+}
+
+service DetectionControl {
+  // Lifecycle
+  rpc Start(Empty) returns (Result);
+  rpc Stop(Empty) returns (Result);
+  rpc GetStatus(Empty) returns (StatusResponse);
+
+  // Tuning
+  rpc SetThreshold(ThresholdRequest) returns (Result);
+  rpc SetOverlayThreshold(ThresholdRequest) returns (Result);
+
+  // Trigger / counter
+  rpc EnableTrigger(Empty) returns (Result);
+  rpc DisableTrigger(Empty) returns (Result);
+  rpc GetCounter(Empty) returns (CounterResponse);
+  rpc ResetCounter(Empty) returns (Result);
+  rpc ResetStats(Empty) returns (Result);
+
+  // Latest processed frame as a one-shot (the live stream uses SHM, not this).
+  rpc Snapshot(SnapshotRequest) returns (SnapshotResponse);
+
+  // Offline detection buffer: page through pending records / ack persisted ones.
+  rpc ListBacklog(BacklogRequest) returns (BacklogResponse);
+  rpc AckBacklog(BacklogAckRequest) returns (Result);
+
+  // Model activation (driven by the model-service migration).
+  rpc ReloadModel(ReloadModelRequest) returns (Result);
+  rpc SetDetectionAreas(SetDetectionAreasRequest) returns (Result);
+  rpc SetSettings(SetSettingsRequest) returns (Result);
+
+  // Telemetry — low-rate server streams the gateway multiplexes onto SSE.
+  rpc StreamEvents(Empty) returns (stream Event);
+  rpc StreamStats(Empty) returns (stream StatsUpdate);
+}

@@ -1,0 +1,11 @@
+# Project metadata for the `os` base image + privileged hardware agent.
+#
+# `requirements-common.txt` defines the shared CUDA/ML stack baked into
+# `conecsa-os:base`. No [build-system] table — the agent is run
+# (`python3 -m agent`), not pip-installed. This file lets tooling
+# (IDEs, mkdocstrings/griffe, linters) resolve the `agent` and `shm` packages.
+[project]
+name = "conecsa-os"
+version = "2026.2-LTS"
+description = "Base CUDA/ML image and privileged hardware gRPC agent (network/Wi-Fi/GPIO/metrics) + shared-memory ring helpers."
+requires-python = ">=3.10"

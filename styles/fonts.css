@@ -1,0 +1,22 @@
+/* Bundled fonts. */
+
+@font-face {
+  font-family: 'Good Times';
+  src: url('/public/Good Times Rg.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+}
+
+/* Inter is the design's primary UI font. It must be bundled (not just listed in
+   --font-sans): on Linux/WebKitGTK (the Tauri webview) the system fallback fonts
+   (DejaVu/Liberation) have asymmetric ascent/descent that make flex-centered text
+   sit above center — Inter is metrically balanced and centers correctly there and
+   in browsers. Variable weight 100–900 covers every weight the UI uses. */
+@font-face {
+  font-family: 'Inter';
+  src: url('/public/Inter-latin-variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  line-gap-override: 0%;
+}

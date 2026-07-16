@@ -1,0 +1,36 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<!--
+  Host-level mDNS advertisement for conecsa-hub-vision discovery.
+
+  Use this when the api-gateway container runs on a bridge network and its
+  in-container zeroconf advertiser (gateway/discovery.py) cannot emit multicast
+  onto the LAN. Install on the device host (avahi-daemon must be running):
+
+      sudo cp conecsa-hub.avahi.service /etc/avahi/services/conecsa.service
+      sudo systemctl reload avahi-daemon   # or restart
+
+  %h expands to the host name in <name> only — avahi does NOT substitute it in
+  <txt-record> values, and it RENAMES a colliding instance (`conecsa-x` becomes
+  `conecsa-x-2`), so the instance name is not a dependable identity. Spell the
+  device id out below: it must equal the device's hostname, which is what
+  enrollment puts in the certificate SAN and what the hub keys its paired-set by.
+  (Left as-is, the hub falls back to the instance name and then reconciles the
+  identity from /enroll/info.) Adjust ports per device. This advertises the SAME
+  service type the hub browses for (_conecsa._tcp).
+-->
+
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_conecsa._tcp</type>
+    <port>5000</port>
+    <!-- Replace with this device's hostname (same value in both records). -->
+    <txt-record>device_id=conecsa-000000</txt-record>
+    <txt-record>name=conecsa-000000</txt-record>
+    <txt-record>http_port=80</txt-record>
+    <txt-record>gateway_port=5000</txt-record>
+    <txt-record>version=2026.2-LTS</txt-record>
+  </service>
+</service-group>

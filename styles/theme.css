@@ -1,0 +1,67 @@
+/* Design tokens: Tailwind @theme + runtime CSS variables. */
+
+@theme {
+  --color-primary: #16a3b6;
+  --color-primary-hover: #0e7490;
+  --color-primary-light: #67e8f9;
+  --color-success: #22c55e;
+  --color-success-hover: #16a34a;
+  --color-danger: #ef4444;
+  --color-danger-hover: #dc2626;
+  --color-warning: #f59e0b;
+  --color-header-bg: #101820;
+  --color-industrial-bg: #0b1117;
+  --color-industrial-panel: #121a23;
+  --color-industrial-panel-raised: #17212c;
+  --color-industrial-border: #263443;
+  --color-industrial-muted: #8da2b5;
+  --color-industrial-text: #e5edf4;
+  --color-conecsa-green: #04a24d;
+
+  --font-good-times: 'Good Times', sans-serif;
+  --font-sans: Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root {
+  --surface-app: #0b1117;
+  --surface-panel: #121a23;
+  --surface-panel-raised: #17212c;
+  --surface-control: #0f1720;
+  --surface-control-hover: #1d2a36;
+  --surface-control-active: rgba(22, 163, 182, 0.12);
+  --surface-overlay: rgba(18, 26, 35, 0.92);
+  --surface-menu: #17212c;
+  --border-subtle: #263443;
+  --border-strong: #35485a;
+  --border-accent: rgba(22, 163, 182, 0.45);
+  --text-strong: #e5edf4;
+  --text-muted: #8da2b5;
+  --text-faint: #66798b;
+  --accent-cyan: #16a3b6;
+  --accent-cyan-hover: #0e7490;
+  --accent-green: #04a24d;
+  --accent-red: #ef4444;
+  --accent-red-hover: #dc2626;
+  --accent-yellow: #f59e0b;
+  --accent-blue: #38bdf8;
+  --state-primary-bg: rgba(22, 163, 182, 0.12);
+  --state-primary-border: rgba(22, 163, 182, 0.34);
+  --state-primary-text: #67e8f9;
+  --state-success-bg: rgba(34, 197, 94, 0.13);
+  --state-success-border: rgba(34, 197, 94, 0.3);
+  --state-success-text: #7ee6a2;
+  --state-danger-bg: rgba(239, 68, 68, 0.13);
+  --state-danger-border: rgba(239, 68, 68, 0.3);
+  --state-danger-text: #fca5a5;
+  --state-warning-bg: rgba(245, 158, 11, 0.15);
+  --state-warning-border: rgba(245, 158, 11, 0.34);
+  --state-warning-text: #facc15;
+  --state-info-bg: rgba(56, 189, 248, 0.13);
+  --state-info-border: rgba(56, 189, 248, 0.3);
+  --state-info-text: #7dd3fc;
+  --track-muted: #263443;
+  --input-bg: #111a24;
+  --shadow-panel: 0 14px 36px rgba(0, 0, 0, 0.28);
+  --shadow-control: 0 10px 22px rgba(0, 0, 0, 0.2);
+  color-scheme: dark;
+}

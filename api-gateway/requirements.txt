@@ -1,0 +1,8 @@
+# Web stack only — grpcio, protobuf, numpy and opencv are inherited from
+# conecsa-os-base:base (the same base inference-service builds on).
+flask==3.1.3
+waitress==3.0.2
+# mDNS advertising so conecsa-hub-vision can discover this device on the LAN.
+zeroconf==0.150.0
+# Device enrollment: EC keypair + CSR generation for hub-signed TLS certs.
+cryptography==49.0.0

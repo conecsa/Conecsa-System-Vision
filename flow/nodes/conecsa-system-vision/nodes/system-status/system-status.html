@@ -1,0 +1,95 @@
+<script type="text/javascript">
+  RED.nodes.registerType("system-status", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      mode: { value: "on-demand" },
+      interval: { value: "10", validate: RED.validators.number() },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-heartbeat",
+    label: function () {
+      return this.name || "system status";
+    },
+    paletteLabel: "system status",
+    oneditprepare: function () {
+      function toggleInterval() {
+        var mode = $("#node-input-mode").val();
+        if (mode === "interval") {
+          $("#row-interval").show();
+        } else {
+          $("#row-interval").hide();
+        }
+      }
+      $("#node-input-mode").on("change", toggleInterval);
+      toggleInterval();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="system-status">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>
+    <select id="node-input-mode">
+      <option value="on-demand">On demand (requires input)</option>
+      <option value="interval">Interval (automatic polling)</option>
+    </select>
+  </div>
+  <div class="form-row" id="row-interval">
+    <label for="node-input-interval"><i class="fa fa-clock-o"></i> Interval (s)</label>
+    <input type="text" id="node-input-interval" placeholder="10" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="system-status">
+  <p>
+    Retrieves system metrics from the inference service (CPU, RAM, disk,
+    temperature, GPU).
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>mode <span class="property-type">string</span></dt>
+    <dd>
+      <code>on-demand</code> — send any message to trigger a fetch.<br />
+      <code>interval</code> — polls automatically at the configured interval.
+    </dd>
+    <dt>interval <span class="property-type">number</span></dt>
+    <dd>Polling interval in seconds (only for <code>interval</code> mode).</dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload.cpu_usage <span class="property-type">number</span></dt>
+    <dd>CPU usage percentage.</dd>
+    <dt>payload.ram_usage <span class="property-type">number</span></dt>
+    <dd>RAM usage percentage.</dd>
+    <dt>payload.ram_total <span class="property-type">number</span></dt>
+    <dd>Total RAM in bytes.</dd>
+    <dt>payload.ram_used <span class="property-type">number</span></dt>
+    <dd>Used RAM in bytes.</dd>
+    <dt>payload.disk_usage <span class="property-type">number</span></dt>
+    <dd>Disk usage percentage.</dd>
+    <dt>payload.temperature <span class="property-type">number</span></dt>
+    <dd>CPU temperature (if available).</dd>
+    <dt>payload.gpu_usage <span class="property-type">number</span></dt>
+    <dd>GPU usage percentage (if available).</dd>
+    <dt>payload.gpu_temperature <span class="property-type">number</span></dt>
+    <dd>GPU temperature (if available).</dd>
+  </dl>
+</script>

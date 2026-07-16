@@ -1,0 +1,92 @@
+<script type="text/javascript">
+  RED.nodes.registerType("stats", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      mode: { value: "on-change" },
+      interval: { value: "2", validate: RED.validators.number() },
+    },
+    inputs: 0,
+    outputs: 1,
+    icon: "font-awesome/fa-tachometer",
+    label: function () {
+      return this.name || "stats";
+    },
+    paletteLabel: "stats",
+    oneditprepare: function () {
+      var node = this;
+      function toggleInterval() {
+        var mode = $("#node-input-mode").val();
+        if (mode === "on-change") {
+          $("#row-interval").hide();
+        } else {
+          $("#row-interval").show();
+        }
+      }
+      $("#node-input-mode").on("change", toggleInterval);
+      toggleInterval();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="stats">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>
+    <select id="node-input-mode">
+      <option value="interval">Interval (throttled push)</option>
+      <option value="on-change">On change (emit when detection count changes)</option>
+    </select>
+  </div>
+  <div class="form-row" id="row-interval">
+    <label for="node-input-interval"><i class="fa fa-clock-o"></i> Interval (s)</label>
+    <input type="text" id="node-input-interval" placeholder="2" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="stats">
+  <p>
+    Subscribes to the <code>/api/v1/stats/stream</code> SSE endpoint and
+    forwards performance statistics as Node-RED messages. No input is
+    required — the node is autonomous.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>mode <span class="property-type">string</span></dt>
+    <dd>
+      <code>interval</code> — emits the freshest snapshot once every
+      <em>interval</em> seconds.<br />
+      <code>on-change</code> — emits only when the detection count
+      (<code>payload.detections</code>) changes; fps and inference_time
+      noise is ignored.
+    </dd>
+    <dt>interval <span class="property-type">number</span></dt>
+    <dd>Throttle period in seconds (only used in <code>interval</code> mode).</dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload.detections <span class="property-type">number</span></dt>
+    <dd>Detections in the last frame.</dd>
+    <dt>payload.fps <span class="property-type">number</span></dt>
+    <dd>Current frames per second.</dd>
+    <dt>payload.inference_time <span class="property-type">number</span></dt>
+    <dd>Inference time in milliseconds.</dd>
+    <dt>payload.frames_with_detections <span class="property-type">number</span></dt>
+    <dd>Cumulative count of frames that had at least one detection.</dd>
+  </dl>
+</script>

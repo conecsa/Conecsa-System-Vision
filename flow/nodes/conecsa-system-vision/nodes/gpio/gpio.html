@@ -1,0 +1,99 @@
+<script type="text/javascript">
+  RED.nodes.registerType("gpio", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      pin: {
+        value: "29",
+        required: true,
+        validate: RED.validators.regex(/^(29|31|33)$/),
+      },
+      action: {
+        value: "high",
+        validate: RED.validators.regex(/^(high|low|toggle|payload)$/),
+      },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-microchip",
+    label: function () {
+      return this.name || "gpio pin " + this.pin;
+    },
+    paletteLabel: "gpio",
+  });
+</script>
+
+<script type="text/html" data-template-name="gpio">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-pin"><i class="fa fa-microchip"></i> Pin</label>
+    <select id="node-input-pin">
+      <option value="29">Pin 29</option>
+      <option value="31">Pin 31</option>
+      <option value="33">Pin 33</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-action"><i class="fa fa-cog"></i> Action</label>
+    <select id="node-input-action">
+      <option value="high">Set HIGH</option>
+      <option value="low">Set LOW</option>
+      <option value="toggle">Toggle (auto)</option>
+      <option value="payload">Payload</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="gpio">
+  <p>
+    Drives a single GPIO output pin HIGH or LOW on the Jetson 40-pin header
+    (BOARD numbering). Controllable pins: 29, 31, 33.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>pin <span class="property-type">number</span></dt>
+    <dd>The output pin to drive.</dd>
+    <dt>action <span class="property-type">string</span></dt>
+    <dd>
+      <code>high</code> — set the pin HIGH.<br />
+      <code>low</code> — set the pin LOW.<br />
+      <code>toggle</code> — flip the pin based on its current level.<br />
+      <code>payload</code> — use <code>msg.payload</code>
+      (<code>true</code>=HIGH, <code>false</code>=LOW).
+    </dd>
+  </dl>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">action <span class="property-type">string</span></dt>
+    <dd>Override the configured action.</dd>
+    <dt class="optional">payload <span class="property-type">boolean</span></dt>
+    <dd>For <code>payload</code> mode: <code>true</code>=HIGH, <code>false</code>=LOW.</dd>
+  </dl>
+  <h3>Output</h3>
+  <p>
+    Emits <code>{ payload: { pin, level, success } }</code> after this node
+    drives the pin.
+  </p>
+  <p>
+    The node also subscribes to the event stream, so the status badge
+    live-updates whenever the pin changes on any client (web app, another flow,
+    curl). Such external changes emit
+    <code>{ payload: { pin, level, event } }</code> on the actual transition;
+    the initial state at flow start is not emitted.
+  </p>
+</script>

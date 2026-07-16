@@ -1,0 +1,249 @@
+/* Core ui-* primitives: cards, headers, text, rows, lists, misc chrome. */
+
+@layer components {
+  .ui-card {
+    background: var(--surface-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow-panel);
+    color: var(--text-strong);
+  }
+
+  .ui-card-pad {
+    padding: 1.5rem;
+  }
+
+  .ui-card-pad-sm {
+    padding: 1rem;
+  }
+
+  .ui-card-scroll {
+    overflow-y: auto;
+  }
+  .ui-section-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 0.75rem;
+    margin-bottom: 1rem;
+    color: var(--text-strong);
+    font-weight: 650;
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+
+  .ui-section-header-sm {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+  }
+
+  .ui-section-header-lg {
+    font-size: 1.125rem;
+  }
+
+  .ui-icon-muted {
+    color: var(--text-muted);
+  }
+
+  .ui-accent {
+    color: var(--state-primary-text);
+  }
+
+  .ui-title-sm,
+  .ui-section-title {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 650;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0;
+  }
+
+  .ui-card-title {
+    color: var(--text-strong);
+    font-size: 0.875rem;
+    font-weight: 650;
+    line-height: 1.25;
+    letter-spacing: 0;
+  }
+
+  .ui-divider {
+    border-color: var(--border-subtle);
+  }
+
+  .ui-section-rule {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 1rem;
+  }
+
+  .ui-section-rule-sm {
+    border-top: 1px solid var(--border-subtle);
+    padding-top: 0.5rem;
+  }
+
+  .ui-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 0.75rem;
+    background: var(--surface-control);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.375rem;
+  }
+
+  .ui-row-sm {
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .ui-row-wrap {
+    flex-wrap: wrap;
+  }
+
+  .ui-row-selected {
+    background: var(--state-primary-bg);
+    border-color: var(--state-primary-border);
+  }
+
+  .ui-row-clickable {
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      border-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .ui-row-clickable:hover {
+    background: var(--surface-control-hover);
+    border-color: var(--border-strong);
+  }
+
+  .ui-list-box {
+    background: var(--surface-control);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.375rem;
+  }
+
+  .ui-empty {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-style: italic;
+    text-align: center;
+  }
+
+  .ui-label {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 650;
+    line-height: 1.25;
+  }
+
+  .ui-label-xs {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+  }
+
+  .ui-help,
+  .ui-muted {
+    color: var(--text-muted);
+  }
+
+  .ui-help {
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+
+  .ui-help-xs {
+    color: var(--text-muted);
+    font-size: 0.625rem;
+    line-height: 1.35;
+  }
+
+  .ui-value {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+
+  .ui-value-muted {
+    color: var(--text-faint);
+  }
+  /* ── Dataset gallery cards ───────────────────────────────────────────────── */
+
+  .ui-dataset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: 1rem;
+  }
+
+  .ui-dataset-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .ui-dataset-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 0.5rem;
+  }
+
+  .ui-dataset-card-name {
+    color: var(--text-strong);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ui-dataset-card-meta {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+  }
+
+  .ui-topbar {
+    background: var(--surface-panel);
+    border-bottom: 1px solid var(--border-subtle);
+    color: var(--text-strong);
+  }
+
+  .ui-warning-icon {
+    color: var(--state-warning-text);
+  }
+
+  .ui-pin-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+  }
+
+  .ui-pin-row-input {
+    color: var(--state-info-text);
+    background: var(--state-info-bg);
+    border-color: var(--state-info-border);
+  }
+
+  .ui-pin-row-output {
+    color: var(--state-success-text);
+    background: var(--state-success-bg);
+    border-color: var(--state-success-border);
+  }
+
+  .ui-color-swatch {
+    display: inline-block;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 0.125rem;
+    border: 1px solid var(--border-strong);
+    flex-shrink: 0;
+  }
+}

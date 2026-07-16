@@ -1,0 +1,78 @@
+# Dockerfile for building and serving the Rust WASM frontend with Trunk and Nginx
+
+# Stage 1: Build WASM frontend with Trunk
+FROM rust:slim AS frontend-builder
+
+WORKDIR /app
+
+# Install system dependencies including binaryen
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    build-essential \
+    curl \
+    protobuf-compiler \
+    libprotobuf-dev \
+    binaryen \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install wasm32 target
+RUN rustup target add wasm32-unknown-unknown
+
+# Install trunk (using specific version to avoid build issues)
+RUN cargo install --locked trunk --version 0.18.8
+
+# Install wasm-bindgen-cli (match version with Cargo.toml)
+RUN cargo install --locked wasm-bindgen-cli --version 0.2.92
+
+# Copy workspace Cargo files
+COPY Cargo.toml Cargo.lock /app/
+
+# Copy system-vision crate (contains build.rs, src/, Cargo.toml, index.html)
+COPY system-vision/ ./system-vision/
+
+# Shared design system (Tailwind input) used by system-vision + hub-vision
+COPY styles/ ./styles/
+
+# Copy proto files for compilation
+COPY proto/ ./proto/
+
+# Shared translation catalogs (read by build.rs via ../i18n/system-vision)
+COPY i18n/ ./i18n/
+
+# Download Tailwind CSS v4 standalone binary for linux-arm64
+RUN curl -fsSL -o /usr/local/bin/tailwindcss \
+    https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-arm64 && \
+    chmod +x /usr/local/bin/tailwindcss
+
+# Build CSS with Tailwind v4 standalone binary (shared input under ../styles)
+RUN cd system-vision && tailwindcss -i ../styles/input.css -o ./styles.css --minify
+
+# Build WASM with Trunk — run from system-vision/ so cargo finds its Cargo.toml
+# directly, avoiding the virtual workspace root. dist goes back to /app/dist/.
+RUN cd system-vision && trunk build --release --dist ../dist
+
+# Stage 2: Serve with Nginx
+FROM nginx:alpine-slim
+
+# openssl is needed to mint the temporary self-signed cert for the enrollment
+# TLS block before the device is paired.
+RUN apk add --no-cache openssl
+
+# Copy built WASM app to nginx
+COPY --from=frontend-builder /app/dist/ /usr/share/nginx/html/
+
+# :80 server (plaintext, transition) + the websocket-upgrade map.
+COPY system-vision/config/nginx.conf /etc/nginx/conf.d/default.conf
+COPY system-vision/config/maps.conf /etc/nginx/conf.d/maps.conf
+
+# :443 TLS server templates; the entrypoint selects one into conf.d/tls.conf at
+# runtime based on enrollment state (enroll → mTLS-enforcing).
+COPY system-vision/config/nginx-enroll.conf /etc/nginx/conecsa/enroll.conf
+COPY system-vision/config/nginx-enforcing.conf /etc/nginx/conecsa/enforcing.conf
+COPY system-vision/config/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 80 443
+
+CMD ["/entrypoint.sh"]

@@ -1,0 +1,78 @@
+# requirements-dev.txt — one virtualenv for all Python development
+# ===========================================================================
+# A single root venv for working across every Python service (inference,
+# api-gateway, training, os agent) plus the docs toolchain — instead of a
+# separate venv per service.
+#
+#   python3 -m venv .venv
+#   source .venv/bin/activate
+#   pip install -r requirements-dev.txt
+#
+# This aggregates the existing per-service requirement files (via `-r`) so it
+# stays in sync with them automatically. It installs the cross-platform deps:
+# the shared ML/runtime stack, the gateway web stack, the hardware agent's deps
+# and the documentation toolchain.
+#
+# NOT included, because they only exist on the device:
+#   - tensorrt / pycuda — need a CUDA toolkit; `./scripts/init.sh --gpu` adds the
+#     x86_64 flavour, and the "Python" section in docs/getting-started.md has the
+#     aarch64 recipe for installing them into this same venv on the Jetson.
+#   - the aarch64 torch / torchvision / onnxruntime-gpu wheels from the
+#     jetson-ai-lab index. (A CPU torch does land here via ultralytics, which is
+#     what the host tests and the type checker resolve against.)
+#   - sam3 — git-cloned into the training image (Dockerfile.training-service) and
+#     run in a subprocess on the device; its import is guarded.
+# ===========================================================================
+
+# Shared ML/runtime stack (opencv, ultralytics, grpcio[-tools],
+# protobuf, requests, psutil) — source of truth: os-base/requirements-common.txt.
+-r os-base/requirements-common.txt
+
+# api-gateway web stack (flask, waitress, zeroconf, cryptography).
+-r api-gateway/requirements.txt
+
+# Hardware agent (jeepney for systemd-networkd over D-Bus, Jetson.GPIO). Both are
+# pure-python and install off-device: jeepney is imported at module level in
+# os-base/agent/, and Jetson.GPIO raises at import on a non-Jetson host, which
+# create_gpio_backend() already turns into a NullGpioBackend. Included via -r so
+# the pins live in one place — the os image installs this same file.
+-r os-base/agent/requirements.txt
+
+# inference-service / training-service declare no extra runtime deps of their
+# own (everything is in the shared stack above); included for completeness so
+# this file tracks them if that changes.
+-r inference-service/requirements.txt
+-r training-service/requirements.txt
+
+# Documentation toolchain (mkdocs-material, mkdocstrings, griffe, gen-files,
+# literate-nav, black). Build with `mkdocs serve` / `scripts/build-docs.sh`.
+-r docs/requirements-docs.txt
+
+# numpy is intentionally left unpinned here: opencv-python 4.12 requires
+# numpy>=2, so the dev venv resolves to a 2.x. conecsa-os-base:base pins it back to
+# 1.26.4 only because pycuda/tensorrt need that ABI — that downgrade lives in
+# the Jetson-only block below (a `--force-reinstall` after opencv), matching how
+# the runtime image is built.
+
+# Imported directly by our code but otherwise reaching the venv only as
+# ultralytics' transitive deps — pinned here so dropping or bumping ultralytics
+# cannot silently break them. matplotlib: docs/communication-diagram.py.
+# pillow: training-service/service/_sam_worker.py.
+matplotlib==3.10.9
+pillow==12.3.0
+
+# ONNX ships in the os image (the TensorRT engine builder consumes .onnx files);
+# kept here for parity with it, not because anything imports the module.
+onnx==1.22.0
+
+# Test runner (host-side unit tests for every Python service). Run per service
+# with `pytest` (config lives in each service's pyproject.toml), or all suites
+# at once via `scripts/test.sh`. pytest-cov is optional coverage reporting.
+pytest==9.1.1
+pytest-cov==7.1.0
+
+# Type checker — the same engine Pylance runs in the editor, so `pyright <path>`
+# from the repo root reproduces the editor's warnings. It reads pyrightconfig.json,
+# whose venvPath/venv point here: without that it would resolve imports against the
+# system Python and report numpy/cv2 as missing.
+pyright==1.1.411

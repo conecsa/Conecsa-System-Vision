@@ -1,0 +1,18 @@
+{
+  "title": "Control Panel",
+  "start_detection": "Start Detection",
+  "stop_detection": "Stop Detection",
+  "converting_model": "Converting model…",
+  "wait_conversion": "Wait for the model conversion to finish",
+  "camera_disconnected": "Camera not connected",
+  "detection_started": "Detection started",
+  "detection_stopped": "Detection stopped",
+  "failed_to_start": "Failed to start: {{ err }}",
+  "failed_to_stop": "Failed to stop: {{ err }}",
+  "status": "Status",
+  "running": "Running",
+  "stopped": "Stopped",
+  "model": "Model",
+  "hardware_acceleration": "Hardware Acceleration",
+  "disabled": "Disabled"
+}

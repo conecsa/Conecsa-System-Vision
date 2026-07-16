@@ -1,0 +1,180 @@
+syntax = "proto3";
+
+package detection;
+
+// Schemas de mensagens para API REST de detecção de objetos
+// Estas mensagens definem os tipos usados na comunicação entre cliente e servidor
+// Não há serviços gRPC - apenas REST endpoints que usam estes schemas
+
+// Start detection request
+message StartDetectionRequest {}
+
+message StartDetectionResponse {
+  bool success = 1;
+  string message = 2;
+  string video_feed_url = 3;
+}
+
+// Stop detection request
+message StopDetectionRequest {}
+
+message StopDetectionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get status request
+message GetStatusRequest {}
+
+message StatusResponse {
+  reserved 4;  // was: bool using_npu (Jetson Orin Nano has no NPU)
+  bool is_running = 1;
+  string current_model = 2;
+  float confidence_threshold = 3;
+  Stats stats = 5;
+  Protocols protocols = 6;
+  bool camera_connected = 7;  // false → Start is refused, the UI says why
+}
+
+// Live performance counters surfaced on /api/v1/status and /api/v1/stats.
+message Stats {
+  float fps = 1;
+  float inference_time = 2;        // milliseconds
+  uint32 detections = 3;           // detections in the most recent frame
+  uint64 frames_with_detections = 4;
+}
+
+// Stream ports advertised to the frontend.
+message Protocols {
+  reserved 1;  // was rtsp_url — RTSP support removed
+  uint32 http_port = 2;
+}
+
+// Stream detections request
+message StreamRequest {
+  uint32 max_fps = 1;  // Maximum FPS to stream (0 = no limit)
+}
+
+// One processed frame plus the detections found in it.
+message DetectionResult {
+  bytes frame_data = 1;  // JPEG encoded frame
+  uint32 detections_count = 2;
+  repeated Detection detections = 3;
+  float inference_time = 4;  // milliseconds
+  uint64 timestamp = 5;      // capture time (epoch ms)
+}
+
+// A single detected object.
+message Detection {
+  uint32 class_id = 1;
+  string class_name = 2;
+  float confidence = 3;   // 0.0–1.0
+  BoundingBox bbox = 4;
+}
+
+// Axis-aligned bounding box in normalized [0,1] frame coordinates.
+message BoundingBox {
+  float x = 1;       // top-left x
+  float y = 2;       // top-left y
+  float width = 3;
+  float height = 4;
+}
+
+// Select model request
+message SelectModelRequest {
+  string model_name = 1;
+}
+
+message SelectModelResponse {
+  bool success = 1;
+  string message = 2;
+  string model_path = 3;
+  bool was_running = 4;
+}
+
+// List models request
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  repeated ModelInfo models = 1;
+}
+
+message ModelInfo {
+  string name = 1;
+  uint64 size = 2;
+  double modified = 3;
+  bool is_active = 4;
+}
+
+// Upload model request
+message ModelChunk {
+  oneof data {
+    ModelMetadata metadata = 1;
+    bytes chunk = 2;
+  }
+}
+
+message ModelMetadata {
+  string filename = 1;
+  uint64 total_size = 2;
+}
+
+message UploadModelResponse {
+  bool success = 1;
+  string message = 2;
+  string model_path = 3;
+}
+
+// Set threshold request
+message SetThresholdRequest {
+  float threshold = 1;
+}
+
+message SetThresholdResponse {
+  bool success = 1;
+  string message = 2;
+  float threshold = 3;
+}
+
+// Get config request
+message GetConfigRequest {}
+
+message ConfigResponse {
+  string capture_device = 1;
+  repeated int32 capture_resolution = 2;
+  int32 capture_framerate = 3;
+  string model_path = 4;
+  float confidence_threshold = 5;
+}
+
+// Update config request
+message UpdateConfigRequest {
+  optional string capture_device = 1;
+  optional int32 capture_framerate = 2;
+  optional float confidence_threshold = 3;
+}
+
+message UpdateConfigResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// Get classes request
+message GetClassesRequest {}
+
+message GetClassesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string classes = 3;
+}
+
+// Upload classes request
+message UploadClassesRequest {
+  string classes_content = 1;  // Classes separated by newlines
+}
+
+message UploadClassesResponse {
+  bool success = 1;
+  string message = 2;
+  repeated string classes = 3;
+}

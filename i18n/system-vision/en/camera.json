@@ -1,0 +1,15 @@
+{
+  "title": "Camera Settings",
+  "failed_to_load_info": "Failed to load camera info: {{ err }}",
+  "settings_applied": "Camera settings applied — capture restarting with new configuration.",
+  "failed_to_apply": "Failed to apply camera settings: {{ err }}",
+  "applying": "Applying...",
+  "apply_settings": "Apply Settings",
+  "capture_device": "Capture Device",
+  "no_devices_hint": "No V4L2 devices found. Running in Docker? Pass",
+  "resolution": "Resolution",
+  "frame_rate": "Frame Rate",
+  "resolution_help": "Frames are letterboxed to 640×640 before YOLO inference; higher capture resolution mainly affects the displayed stream.",
+  "stereo_overlay": "3D Stereo Overlay",
+  "stereo_overlay_help": "Blends the camera's left and right images into a single overlaid view for the stream and detection. When enabled, use the 3D button on the live video to adjust blend and alignment."
+}

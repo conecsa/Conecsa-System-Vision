@@ -1,0 +1,6 @@
+# Headless inference-service: no service-specific Python deps.
+#
+# The web stack (flask / flask-cors / waitress / blinker) was removed when the
+# api-gateway took over HTTP — inference now exposes only gRPC. Everything it
+# needs (grpcio, protobuf, torch, tensorrt, pycuda, opencv, numpy, psutil,
+# Jetson.GPIO, …) comes from the conecsa-os-base:base image.

@@ -1,0 +1,19 @@
+{
+  "navigation": "Navigation",
+  "live_stream_title": "Live Stream",
+  "stream_label": "Stream",
+  "camera_settings_title": "Camera Settings",
+  "camera_label": "Camera",
+  "flow_editor_title": "Flow Editor",
+  "flow_label": "Automation",
+  "gpio_settings_title": "GPIO Settings",
+  "settings_label": "Settings",
+  "model_training_title": "Model Training",
+  "training_label": "Training",
+  "conversion_wait_before_training": "A model is being converted. Wait for the conversion to finish before opening training.",
+  "system_status": "System Status",
+  "disk_label": "Disk",
+  "cpu_temp": "CPU Temp: {{ temp }}",
+  "not_available": "N/A",
+  "stream_active": "Stream Active"
+}

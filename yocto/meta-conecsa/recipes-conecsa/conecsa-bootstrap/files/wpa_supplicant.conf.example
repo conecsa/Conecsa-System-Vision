@@ -1,0 +1,30 @@
+# wpa_supplicant configuration — example / template
+#
+# Copy this file to the path that systemd's wpa_supplicant@<iface>.service
+# expects, replacing <iface> with your wireless interface name (see `ip link`).
+# For an RTL8822CE on PCIe the kernel usually names it wlP<bus>p<slot>s<func>
+# (e.g. wlP3p1s0):
+#
+#     IFACE=$(ip -o link show | awk -F': ' '/wl/ {print $2; exit}')
+#     install -m 0600 /etc/wpa_supplicant/wpa_supplicant.conf.example \
+#                     /etc/wpa_supplicant/wpa_supplicant-$IFACE.conf
+#     wpa_passphrase "<YOUR_SSID>" "<YOUR_PSK>" \
+#         >> /etc/wpa_supplicant/wpa_supplicant-$IFACE.conf
+#     systemctl enable --now wpa_supplicant@$IFACE
+#
+# After that, systemd-networkd will pick up the wireless interface via the
+# Type=wlan matcher in /etc/systemd/network/30-wireless.network and DHCP it.
+#
+# Permissions on the real config matter — keep it 0600 (contains your PSK).
+
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=wheel
+update_config=1
+country=BR
+
+# Example network block — uncomment and replace, or use wpa_passphrase:
+#
+# network={
+#     ssid="MyWifi"
+#     psk="MyPassword"
+#     key_mgmt=WPA-PSK
+# }

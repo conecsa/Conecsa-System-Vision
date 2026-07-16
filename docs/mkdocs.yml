@@ -1,0 +1,96 @@
+site_name: Conecsa Object Detection
+site_description: >-
+  Real-time object detection on the NVIDIA Jetson Orin Nano — Rust frontend,
+  Rust camera server, headless Python TensorRT inference, and a privileged
+  hardware agent.
+site_url: https://conecsa.com.br/conecsa-object-detection/
+repo_url: https://github.com/conecsa/conecsa-object-detection
+# This config lives inside docs/; paths below are relative to it.
+docs_dir: .
+site_dir: ../site
+# Keep the config and tooling files out of the published site.
+exclude_docs: |
+  mkdocs.yml
+  gen_api_pages.py
+  communication-diagram.py
+  requirements-docs.txt
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - toc.follow
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: teal
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - gen_api_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          # Static parsing only (griffe) — no imports, no CUDA/torch needed.
+          paths:
+            - ../inference-service
+            - ../api-gateway
+            - ../os-base
+            - ../training-service
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_if_no_docstring: true
+            members_order: source
+            separate_signature: true
+            merge_init_into_class: true
+            filters: ["!^_pb2", "!^_pb2_grpc"]
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Getting started: getting-started.md
+  - Configuration: configuration.md
+  - HTTP API reference: api-reference.md
+  - Services:
+      - services/inference-service.md
+      - services/api-gateway.md
+      - services/webcam-server.md
+      - services/os-hardware-agent.md
+      - services/training-service.md
+      - services/flow.md
+  - Fleet hub: services/hub-vision.md
+  - Reference:
+      - Protocol Buffers: reference/proto.md
+      - Python API: reference/python-api/
+  - Rust API (cargo doc): rust/index.html
+  - Troubleshooting: troubleshooting.md
+  - Yocto build: yocto-build.md

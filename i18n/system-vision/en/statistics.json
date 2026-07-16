@@ -1,0 +1,6 @@
+{
+  "title": "Performance Statistics",
+  "inference_time": "Inference Time",
+  "detections": "Detections",
+  "frames_with_detections": "Frames w/ Detections"
+}

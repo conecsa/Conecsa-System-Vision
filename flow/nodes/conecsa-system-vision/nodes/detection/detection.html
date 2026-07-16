@@ -1,0 +1,126 @@
+<script type="text/javascript">
+  RED.nodes.registerType("detection", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      mode: { value: "on-change" },
+      interval: { value: "5", validate: RED.validators.number() },
+      includeFrame: { value: true },
+      deviceId: { value: "" },
+    },
+    inputs: 0,
+    outputs: 1,
+    icon: "font-awesome/fa-eye",
+    label: function () {
+      return this.name || "detection";
+    },
+    paletteLabel: "detection",
+    oneditprepare: function () {
+      function toggleInterval() {
+        var mode = $("#node-input-mode").val();
+        if (mode === "on-change") {
+          $("#row-interval").hide();
+        } else {
+          $("#row-interval").show();
+        }
+      }
+      $("#node-input-mode").on("change", toggleInterval);
+      toggleInterval();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="detection">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>
+    <select id="node-input-mode">
+      <option value="interval">Interval (timed polling)</option>
+      <option value="on-change">On change (emit only when values change)</option>
+    </select>
+  </div>
+  <div class="form-row" id="row-interval">
+    <label for="node-input-interval"><i class="fa fa-clock-o"></i> Interval (s)</label>
+    <input type="text" id="node-input-interval" placeholder="5" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-includeFrame"
+      ><i class="fa fa-picture-o"></i> Include frame</label
+    >
+    <input
+      type="checkbox"
+      id="node-input-includeFrame"
+      style="display:inline-block; width:auto; vertical-align:top"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-deviceId"><i class="fa fa-id-card"></i> Device ID</label>
+    <input type="text" id="node-input-deviceId" placeholder="optional · else DEVICE_ID env / hub matches by IP" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="detection">
+  <p>
+    Returns the list of detections from the latest processed frame, each
+    tagged with the saved detection area its center falls in (or null).
+    Uses user-assigned class names. Optionally includes the processed frame
+    as base64 JPEG.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>mode <span class="property-type">string</span></dt>
+    <dd>
+      <code>interval</code> — polls at a fixed time interval.<br />
+      <code>on-change</code> — polls internally and emits only when values change.
+    </dd>
+    <dt>interval <span class="property-type">number</span></dt>
+    <dd>Polling interval in seconds (only used in <code>interval</code> mode).</dd>
+    <dt>includeFrame <span class="property-type">boolean</span></dt>
+    <dd>Whether to include the processed frame as base64 in the output.</dd>
+    <dt>deviceId <span class="property-type">string</span></dt>
+    <dd>
+      Optional device identifier sent to the conecsa-hub-vision hub (or the
+      <code>DEVICE_ID</code> env var). Leave empty to let the hub attribute
+      records to the mDNS-discovered device, matched by the request's source IP.
+      Do not rely on the container hostname.
+    </dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload.detections <span class="property-type">array</span></dt>
+    <dd>
+      One object per detection. Each has <code>class_name</code>,
+      <code>confidence</code>, and <code>area</code> — the saved area
+      containing the detection's center
+      (<code>{ "id", "label", "shape" }</code>) or <code>null</code>. E.g.
+      <code>[{ "class_name": "person", "confidence": 0.91, "area": { "id": "..", "label": "#1", "shape": "rectangle" } }]</code>.
+    </dd>
+    <dt>payload.total <span class="property-type">number</span></dt>
+    <dd>Total number of detections.</dd>
+    <dt>payload.model <span class="property-type">string</span></dt>
+    <dd>Model filename used for the detection.</dd>
+    <dt>payload.acceleration_type <span class="property-type">string</span></dt>
+    <dd>Hardware acceleration type (e.g. "GPU", "CPU").</dd>
+    <dt>payload.runtime_type <span class="property-type">string</span></dt>
+    <dd>Runtime type (e.g. "TensorRT", "PyTorch").</dd>
+    <dt>payload.frame <span class="property-type">string|null</span></dt>
+    <dd>Base64-encoded JPEG of the processed frame (null if disabled).</dd>
+    <dt>payload.device_id <span class="property-type">string</span></dt>
+    <dd>Device identifier (see <code>deviceId</code> config).</dd>
+  </dl>
+</script>

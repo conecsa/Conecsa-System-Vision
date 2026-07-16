@@ -1,0 +1,82 @@
+# ============================================================================
+# Training service image. Inherits the shared ML stack (CUDA + Python + torch
+# + ultralytics + opencv + …) from conecsa-os-base:base.
+#
+# Adds: the SAM3 package (best-effort — the gated checkpoint is provisioned
+# into the data volume by the operator), the application code, the committed
+# yolo26s.pt base weights (the device is often offline) and the compiled
+# proto stubs.
+# ============================================================================
+
+FROM base
+
+WORKDIR /app
+
+COPY training-service/requirements.txt /app/
+RUN pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt
+
+# SAM3 (AI-assisted labeling). Best-effort on purpose (|| true keeps the
+# build green when the build host is offline — AI labeling then reports
+# unavailable at runtime while everything else works).
+#
+# sam3 itself and timm are installed with --no-deps so pip can NEVER touch
+# the base image's pinned torch/torchvision/numpy stack; sam3's remaining
+# runtime deps are installed explicitly instead: the pyproject list (timm,
+# tqdm, ftfy, regex, iopath, typing_extensions, huggingface_hub) plus what
+# the image-prediction code path actually imports beyond it (einops for the
+# rope attention, pycocotools via the package __init__ chain) and timm's own
+# pyyaml/safetensors. All torch-free, all validated on-device.
+#
+# setuptools is pulled in explicitly too: the sam3 import chain still does
+# `import pkg_resources` (provided by setuptools), which the slim base image's
+# Python no longer ships — without it the worker dies with "No module named
+# 'pkg_resources'". Pinned <81 as setuptools' own deprecation notice advises,
+# so pkg_resources stays available.
+RUN (git clone --depth 1 https://github.com/facebookresearch/sam3 /opt/sam3 && \
+     pip install --no-cache-dir --root-user-action=ignore \
+         "setuptools<81" huggingface_hub safetensors pyyaml tqdm "ftfy==6.1.1" regex \
+         "iopath>=0.1.10" typing_extensions einops pycocotools && \
+     pip install --no-cache-dir --root-user-action=ignore --no-deps "timm>=1.0.17" && \
+     pip install --no-cache-dir --root-user-action=ignore --no-deps /opt/sam3) || \
+    echo "WARNING: sam3 install skipped (offline or incompatible); AI labeling will report unavailable"
+
+ENV PYTHONPATH=/app/training-service:/usr/lib/python3.10/dist-packages:/usr/local/lib/python3.10/dist-packages
+
+# Model weights in their own EARLY layer: sam3.pt is ~3.5 GB (gitignored,
+# downloaded locally by the operator — see SAM3_CHECKPOINT) and yolo26s.pt is
+# the committed training base. Copied before the app code so code changes
+# never invalidate (and re-upload) the multi-GB layer. The root .dockerignore
+# excludes sam3.pt from every OTHER service's build context; this build uses
+# its own Dockerfile.training-service.dockerignore which admits it.
+COPY training-service/assets/ /app/training-service/assets/
+
+# Application code (explicit subpaths so assets/ above is not copied twice —
+# a second COPY of the same files would duplicate the 3.5 GB in a new layer).
+COPY training-service/main.py /app/training-service/
+COPY training-service/service/ /app/training-service/service/
+
+# Compile proto files using grpc_tools.protoc (installed in conecsa-os-base:base)
+# so the generated stubs are compatible with the protobuf runtime.
+COPY proto/ /app/proto/
+RUN mkdir -p /app/training-service/service/proto && \
+    python3 -m grpc_tools.protoc \
+        -I/app/proto \
+        --python_out=/app/training-service/service/proto \
+        --pyi_out=/app/training-service/service/proto \
+        --grpc_python_out=/app/training-service/service/proto \
+        /app/proto/*.proto && \
+    touch /app/training-service/service/proto/__init__.py
+
+# Compile sources to bytecode and drop the .py files (production ships .pyc
+# only; `-m` module launches keep working — same as the inference-service).
+RUN python3 -m compileall -b -q /app/training-service && \
+    find /app/training-service -name "*.py" -delete
+
+# Dataset/runs volume mountpoint
+RUN mkdir -p /data/training
+
+EXPOSE 50071
+WORKDIR /app/training-service
+
+# `exec` keeps python as PID 1 so docker stop signals reach it.
+CMD ["sh", "-c", "exec python3 -m main"]

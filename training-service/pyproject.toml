@@ -1,0 +1,19 @@
+# Project metadata for the training-service (datasets, labeling, training jobs).
+#
+# Runtime deps live in `training-service/requirements.txt` on top of the
+# `conecsa-os-base:base` image. No [build-system] table — the service is run, not
+# pip-installed. This file lets tooling (IDEs, mkdocstrings/griffe, linters)
+# resolve the `service` package and hosts future Python tool config.
+[project]
+name = "conecsa-training-service"
+version = "2026.2-LTS"
+description = "Dataset management, SAM3-assisted labeling, and YOLO training-job orchestration."
+requires-python = ">=3.10"
+
+# Host-side unit tests (dataset import/CRUD validation, letterbox math, SAM box
+# helpers, config, event bus). Run `pytest` here or all suites via
+# `scripts/test.sh`. `pythonpath` makes the `service` package importable; the
+# shared `conecsa_shm` package (os-base) is added to sys.path by tests/conftest.py.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

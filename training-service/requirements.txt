@@ -1,0 +1,2 @@
+# Service-specific deps only — torch, ultralytics, opencv, grpcio, requests
+# and numpy all ship in conecsa-os-base:base (os-base/requirements-common.txt).

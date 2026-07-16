@@ -1,0 +1,71 @@
+<script type="text/javascript">
+  RED.nodes.registerType("reset-stats", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      scope: {
+        value: "all",
+        validate: RED.validators.regex(/^(all|counter|stats)$/),
+      },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-eraser",
+    label: function () {
+      return this.name || "reset stats";
+    },
+    paletteLabel: "reset stats",
+  });
+</script>
+
+<script type="text/html" data-template-name="reset-stats">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-scope"><i class="fa fa-cog"></i> Scope</label>
+    <select id="node-input-scope">
+      <option value="all">All (counter + stats)</option>
+      <option value="counter">Counter only</option>
+      <option value="stats">Stats only</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="reset-stats">
+  <p>
+    Resets statistics and/or detection counter on the inference service.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>scope <span class="property-type">string</span></dt>
+    <dd>
+      <code>all</code> — reset both counter and system stats.<br />
+      <code>counter</code> — reset only the accumulated detection count.<br />
+      <code>stats</code> — reset only system stats (fps, inference_time, detections, frames_with_detections).
+    </dd>
+  </dl>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">scope <span class="property-type">string</span></dt>
+    <dd>Override the configured scope.</dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload <span class="property-type">object</span></dt>
+    <dd><code>{reset: "all|counter|stats", success: true}</code></dd>
+  </dl>
+</script>

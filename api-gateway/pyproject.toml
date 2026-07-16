@@ -1,0 +1,19 @@
+# Project metadata for the api-gateway (the only public HTTP surface).
+#
+# Runtime deps live in `api-gateway/requirements.txt` on top of the
+# `conecsa-os-base:base` image. No [build-system] table — the service is run, not
+# pip-installed. This file lets tooling (IDEs, mkdocstrings/griffe, linters)
+# resolve the `gateway` package and hosts future Python tool config.
+[project]
+name = "conecsa-api-gateway"
+version = "2026.2-LTS"
+description = "Thin HTTP↔gRPC/SHM gateway: the only external REST/SSE/MJPEG surface."
+requires-python = ">=3.10"
+
+# Host-side unit tests (config, event bus, MJPEG framing, gRPC→JSON mappers,
+# enrollment crypto). Run `pytest` here or all suites via `scripts/test.sh`.
+# `pythonpath` makes the `gateway` package importable; the shared `conecsa_shm`
+# package (os-base) is added to sys.path by tests/conftest.py.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

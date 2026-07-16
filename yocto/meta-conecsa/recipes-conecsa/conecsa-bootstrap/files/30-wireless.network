@@ -1,0 +1,25 @@
+[Match]
+Type=wlan
+
+[Link]
+# Don't let an unconfigured Wi-Fi NIC gate network-online.target. By default
+# the image ships no wpa_supplicant credentials (the .conf is a template the
+# operator activates), so this managed link never reaches carrier. Without
+# this, systemd-networkd-wait-online waits for ALL managed links and blocks
+# on the wlan for its full 120s timeout — delaying docker.service (which is
+# ordered After=network-online.target) and thus the whole compose stack.
+RequiredForOnline=no
+
+[Network]
+DHCP=yes
+LinkLocalAddressing=ipv4
+
+[DHCPv4]
+UseDomains=yes
+UseNTP=no
+
+[DHCPv6]
+UseNTP=no
+
+[IPv6AcceptRA]
+UseNTP=no

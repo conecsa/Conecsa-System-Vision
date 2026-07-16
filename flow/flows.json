@@ -1,0 +1,611 @@
+[
+  {
+    "id": "f76b146c87826368",
+    "type": "tab",
+    "label": "Conecsa Flow",
+    "disabled": false,
+    "info": "Pre-configured flow for Conecsa object detection system."
+  },
+  {
+    "id": "a57709f9a2dc9734",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── CAMERA-TRIGGER CONTROL ──",
+    "info": "Use the inject nodes below to enable or disable the inference camera-trigger.\nWhen disabled, the processed video stream is frozen at the last frame.",
+    "x": 190,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "719b314fcff7e09c",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "▶ Enable Camera Trigger",
+    "props": [
+      {
+        "p": "action",
+        "v": "enable",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 170,
+    "y": 120,
+    "wires": [
+      [
+        "86e8ea5d6179b80e"
+      ]
+    ]
+  },
+  {
+    "id": "de44e00ac2e7f150",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "⏸ Disable Camera Trigger",
+    "props": [
+      {
+        "p": "action",
+        "v": "disable",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 170,
+    "y": 180,
+    "wires": [
+      [
+        "86e8ea5d6179b80e"
+      ]
+    ]
+  },
+  {
+    "id": "ab0ae9264705e608",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "⇆ Toggle Camera Trigger",
+    "props": [
+      {
+        "p": "action",
+        "v": "toggle",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 170,
+    "y": 240,
+    "wires": [
+      [
+        "86e8ea5d6179b80e"
+      ]
+    ]
+  },
+  {
+    "id": "86e8ea5d6179b80e",
+    "type": "camera-trigger",
+    "z": "f76b146c87826368",
+    "name": "Camera Trigger",
+    "inferenceUrl": "",
+    "action": "toggle",
+    "x": 420,
+    "y": 180,
+    "wires": [
+      [
+        "9e3a85209f815be3"
+      ]
+    ]
+  },
+  {
+    "id": "9e3a85209f815be3",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Camera Trigger Status",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.trigger_enabled",
+    "statusType": "auto",
+    "x": 660,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "002c99a735cdf7fa",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── DETECTION STATS ──",
+    "info": "Autonomous stats node — subscribes to /api/v1/stats/stream and emits in on-change mode (only when the detection count changes).\nNo inject node required.",
+    "x": 170,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "af366ad81bc5b7e0",
+    "type": "stats",
+    "z": "f76b146c87826368",
+    "name": "Stats",
+    "inferenceUrl": "",
+    "mode": "on-change",
+    "interval": "2",
+    "x": 90,
+    "y": 400,
+    "wires": [
+      [
+        "1ed3bbca5543dd78"
+      ]
+    ]
+  },
+  {
+    "id": "1ed3bbca5543dd78",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Detection Count",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.detections",
+    "statusType": "auto",
+    "x": 280,
+    "y": 400,
+    "wires": []
+  },
+  {
+    "id": "b4cb7f0415d3e17b",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── PER-CLASS DETECTION ──",
+    "info": "Autonomous node for per-class detection breakdown with processed frame.\nIncludes model name and hardware acceleration info.",
+    "x": 180,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "cb722fde4e2e6f3e",
+    "type": "detection",
+    "z": "f76b146c87826368",
+    "name": "Detection",
+    "inferenceUrl": "",
+    "mode": "on-change",
+    "interval": "5",
+    "includeFrame": true,
+    "x": 100,
+    "y": 560,
+    "wires": [
+      [
+        "2fef254b60cba5f7"
+      ]
+    ]
+  },
+  {
+    "id": "2fef254b60cba5f7",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Detection Classes",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.total",
+    "statusType": "auto",
+    "x": 300,
+    "y": 560,
+    "wires": []
+  },
+  {
+    "id": "6f86d942787fcb8f",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── START / STOP DETECTION ──",
+    "info": "Controls starting and stopping the object detection engine.",
+    "x": 180,
+    "y": 660,
+    "wires": []
+  },
+  {
+    "id": "87395b934c6925a8",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Toggle Detection",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 140,
+    "y": 720,
+    "wires": [
+      [
+        "1fab41650c8162f9"
+      ]
+    ]
+  },
+  {
+    "id": "1fab41650c8162f9",
+    "type": "start-stop",
+    "z": "f76b146c87826368",
+    "name": "Start/Stop",
+    "inferenceUrl": "",
+    "action": "toggle",
+    "x": 350,
+    "y": 720,
+    "wires": [
+      [
+        "6d844c25726468d8"
+      ]
+    ]
+  },
+  {
+    "id": "6d844c25726468d8",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Detection State",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.success",
+    "statusType": "auto",
+    "x": 550,
+    "y": 720,
+    "wires": []
+  },
+  {
+    "id": "806de1720f9b2758",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── THRESHOLD ──",
+    "info": "Set confidence or overlay threshold on the inference service.",
+    "x": 140,
+    "y": 820,
+    "wires": []
+  },
+  {
+    "id": "2132d237c119d162",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Set Confidence 0.5",
+    "props": [
+      {
+        "p": "payload",
+        "v": "0.5",
+        "vt": "num"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 150,
+    "y": 880,
+    "wires": [
+      [
+        "90dc5cbeddfadd48"
+      ]
+    ]
+  },
+  {
+    "id": "90dc5cbeddfadd48",
+    "type": "threshold",
+    "z": "f76b146c87826368",
+    "name": "Threshold",
+    "inferenceUrl": "",
+    "thresholdType": "confidence",
+    "value": "0.5",
+    "x": 360,
+    "y": 880,
+    "wires": [
+      [
+        "aa0b4ff8a2b0ef95"
+      ]
+    ]
+  },
+  {
+    "id": "aa0b4ff8a2b0ef95",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Threshold Result",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.threshold",
+    "statusType": "auto",
+    "x": 570,
+    "y": 880,
+    "wires": []
+  },
+  {
+    "id": "6d788f7025c91da3",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── DETECTION MODELS ──",
+    "info": "List or select detection models on the inference service.",
+    "x": 170,
+    "y": 1040,
+    "wires": []
+  },
+  {
+    "id": "fef2c879aba0500d",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "List Models",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 130,
+    "y": 1100,
+    "wires": [
+      [
+        "2bcd89e2b8738683"
+      ]
+    ]
+  },
+  {
+    "id": "2bcd89e2b8738683",
+    "type": "detection-models",
+    "z": "f76b146c87826368",
+    "name": "Models",
+    "inferenceUrl": "",
+    "action": "list",
+    "modelName": "",
+    "x": 350,
+    "y": 1100,
+    "wires": [
+      [
+        "a7c4ded72d8330b0"
+      ]
+    ]
+  },
+  {
+    "id": "a7c4ded72d8330b0",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Models List",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.models.length",
+    "statusType": "auto",
+    "x": 540,
+    "y": 1100,
+    "wires": []
+  },
+  {
+    "id": "2a4edba30d528817",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── SYSTEM STATUS ──",
+    "info": "Retrieves system metrics (CPU, RAM, disk, temperature, GPU).",
+    "x": 150,
+    "y": 1200,
+    "wires": []
+  },
+  {
+    "id": "e663697b76821e35",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Get Status",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 120,
+    "y": 1260,
+    "wires": [
+      [
+        "73bdca11961fe04c"
+      ]
+    ]
+  },
+  {
+    "id": "73bdca11961fe04c",
+    "type": "system-status",
+    "z": "f76b146c87826368",
+    "name": "System Status",
+    "inferenceUrl": "",
+    "mode": "on-demand",
+    "interval": "10",
+    "x": 350,
+    "y": 1260,
+    "wires": [
+      [
+        "81f83f8e015b922c"
+      ]
+    ]
+  },
+  {
+    "id": "81f83f8e015b922c",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "System Metrics",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.cpu_usage",
+    "statusType": "auto",
+    "x": 570,
+    "y": 1260,
+    "wires": []
+  },
+  {
+    "id": "22a8c2a684930383",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── RESET STATS ──",
+    "info": "Resets detection counter and/or system statistics.\nConfigurable scope: all, counter only, or stats only.",
+    "x": 140,
+    "y": 1360,
+    "wires": []
+  },
+  {
+    "id": "0693b195d9525a45",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Reset All",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 120,
+    "y": 1420,
+    "wires": [
+      [
+        "84af052a19341f18"
+      ]
+    ]
+  },
+  {
+    "id": "9b3d5ce07fdc8f8d",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Reset Counter Only",
+    "props": [
+      {
+        "p": "scope",
+        "v": "counter",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 150,
+    "y": 1480,
+    "wires": [
+      [
+        "84af052a19341f18"
+      ]
+    ]
+  },
+  {
+    "id": "84af052a19341f18",
+    "type": "reset-stats",
+    "z": "f76b146c87826368",
+    "name": "Reset Stats",
+    "inferenceUrl": "",
+    "scope": "all",
+    "x": 370,
+    "y": 1420,
+    "wires": [
+      [
+        "c1234244a2ff5af4"
+      ]
+    ]
+  },
+  {
+    "id": "c1234244a2ff5af4",
+    "type": "debug",
+    "z": "f76b146c87826368",
+    "name": "Reset Result",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.reset",
+    "statusType": "auto",
+    "x": 570,
+    "y": 1420,
+    "wires": []
+  },
+  {
+    "id": "933c8dead3a29b41",
+    "type": "comment",
+    "z": "f76b146c87826368",
+    "name": "── PLC / PROTOCOL INTEGRATION ──",
+    "info": "Install the desired protocol node from the Node-RED palette manager:\n  • node-red-contrib-modbus     (Modbus TCP/RTU)\n  • node-red-contrib-s7         (Siemens S7 PLC)\n  • node-red-contrib-opcua      (OPC-UA)\n  • @node-red-contrib/ros2      (ROS2)\n\nConnect your PLC output directly to the 'camera-trigger' node\nto control detection processing from your industrial controller.\nThe trigger_enabled field in the output can be mapped back to a PLC coil.",
+    "x": 200,
+    "y": 1580,
+    "wires": []
+  },
+  {
+    "id": "380b87caa43813c1",
+    "type": "inject",
+    "z": "f76b146c87826368",
+    "name": "Set Overlay 0.5",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "0.5",
+    "payloadType": "num",
+    "x": 140,
+    "y": 940,
+    "wires": [
+      [
+        "afc8223d0db013df"
+      ]
+    ]
+  },
+  {
+    "id": "afc8223d0db013df",
+    "type": "threshold",
+    "z": "f76b146c87826368",
+    "name": "Threshold",
+    "inferenceUrl": "",
+    "thresholdType": "overlay",
+    "value": "0.5",
+    "x": 340,
+    "y": 940,
+    "wires": [
+      [
+        "aa0b4ff8a2b0ef95"
+      ]
+    ]
+  },
+  {
+    "id": "d3abf7aa77ff10cc",
+    "type": "global-config",
+    "env": [],
+    "modules": {
+      "node-red-contrib-conecsa-system-vision": "1.0.0"
+    }
+  }
+]

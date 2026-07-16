@@ -1,0 +1,339 @@
+/*
+ * Conecsa industrial theme for the Node-RED editor.
+ * Kept as plain CSS so the palette can be maintained with the app theme.
+ */
+
+:root {
+  --conecsa-bg: #0b1117;
+  --conecsa-panel: #121a23;
+  --conecsa-panel-raised: #17212c;
+  --conecsa-control: #0f1720;
+  --conecsa-hover: #1d2a36;
+  --conecsa-border: #263443;
+  --conecsa-border-strong: #35485a;
+  --conecsa-text: #e5edf4;
+  --conecsa-muted: #8da2b5;
+  --conecsa-cyan: #16a3b6;
+  --conecsa-cyan-hover: #0e7490;
+  --conecsa-green: #22c55e;
+  --conecsa-brand-green: #04a24d;
+  --conecsa-amber: #f59e0b;
+  --conecsa-red: #ef4444;
+  --conecsa-red-dark: #7f1d1d;
+
+  --red-ui-primary-font: Inter, "Helvetica Neue", Arial, Helvetica, sans-serif;
+  --red-ui-primary-font-size: 14px;
+  --red-ui-monospace-font: Menlo, Consolas, "DejaVu Sans Mono", Courier, monospace;
+  --red-ui-header-height: 46px;
+
+  --red-ui-primary-background: var(--conecsa-bg);
+  --red-ui-secondary-background: var(--conecsa-panel);
+  --red-ui-secondary-background-selected: var(--conecsa-panel-raised);
+  --red-ui-secondary-background-inactive: var(--conecsa-control);
+  --red-ui-secondary-background-hover: var(--conecsa-hover);
+  --red-ui-secondary-background-disabled: #111821;
+  --red-ui-tertiary-background: var(--conecsa-control);
+  --red-ui-shadow: rgba(0, 0, 0, 0.32);
+
+  --red-ui-primary-text-color: var(--conecsa-text);
+  --red-ui-secondary-text-color: #c6d3df;
+  --red-ui-secondary-text-color-focus: #f8fbff;
+  --red-ui-secondary-text-color-hover: #f8fbff;
+  --red-ui-secondary-text-color-active: #f8fbff;
+  --red-ui-secondary-text-color-selected: #f8fbff;
+  --red-ui-secondary-text-color-inactive: var(--conecsa-muted);
+  --red-ui-secondary-text-color-disabled: rgba(141, 162, 181, 0.5);
+  --red-ui-secondary-text-color-disabled-active: rgba(141, 162, 181, 0.55);
+  --red-ui-secondary-text-color-disabled-inactive: rgba(141, 162, 181, 0.42);
+  --red-ui-tertiary-text-color: var(--conecsa-muted);
+  --red-ui-header-text-color: var(--conecsa-text);
+  --red-ui-text-color-error: #f87171;
+  --red-ui-text-color-warning: #fbbf24;
+  --red-ui-text-color-success: #86efac;
+  --red-ui-text-color-code: #fcd34d;
+  --red-ui-text-color-link: #67e8f9;
+
+  --red-ui-primary-border-color: var(--conecsa-border);
+  --red-ui-secondary-border-color: var(--conecsa-border);
+  --red-ui-tertiary-border-color: var(--conecsa-border-strong);
+  --red-ui-border-color-error: var(--conecsa-red);
+  --red-ui-border-color-warning: var(--conecsa-amber);
+  --red-ui-border-color-success: var(--conecsa-green);
+
+  --red-ui-form-background: var(--conecsa-panel);
+  --red-ui-form-placeholder-color: #71869a;
+  --red-ui-form-text-color: var(--conecsa-text);
+  --red-ui-form-text-color-disabled: rgba(141, 162, 181, 0.56);
+  --red-ui-form-input-focus-color: var(--conecsa-cyan);
+  --red-ui-form-input-border-color: var(--conecsa-border-strong);
+  --red-ui-form-input-border-selected-color: var(--conecsa-cyan);
+  --red-ui-form-input-border-error-color: var(--conecsa-red);
+  --red-ui-form-input-background: var(--conecsa-control);
+  --red-ui-form-input-background-disabled: #0b1117;
+  --red-ui-form-button-background: var(--conecsa-panel-raised);
+  --red-ui-form-tips-background: #111821;
+
+  --red-ui-text-editor-color: var(--conecsa-text);
+  --red-ui-text-editor-background: var(--conecsa-control);
+  --red-ui-text-editor-color-disabled: var(--conecsa-muted);
+  --red-ui-text-editor-background-disabled: #0b1117;
+  --red-ui-text-editor-gutter-background: #0d141c;
+  --red-ui-text-editor-gutter-color: #62778a;
+  --red-ui-text-editor-gutter-active-line-background: var(--conecsa-panel-raised);
+  --red-ui-text-editor-active-line-background: rgba(22, 163, 182, 0.14);
+  --red-ui-text-editor-selection-background: rgba(22, 163, 182, 0.28);
+
+  --red-ui-event-log-background: var(--conecsa-control);
+  --red-ui-event-log-color: var(--conecsa-text);
+  --red-ui-event-log-active-line-background: var(--conecsa-panel-raised);
+  --red-ui-event-log-selection-background: rgba(22, 163, 182, 0.18);
+
+  --red-ui-list-item-color: var(--conecsa-text);
+  --red-ui-list-item-secondary-color: var(--conecsa-muted);
+  --red-ui-list-item-background: var(--conecsa-panel);
+  --red-ui-list-item-background-disabled: #0d141c;
+  --red-ui-list-item-background-hover: var(--conecsa-hover);
+  --red-ui-list-item-background-selected: rgba(22, 163, 182, 0.16);
+  --red-ui-list-item-border-selected: var(--conecsa-cyan);
+
+  --red-ui-tab-text-color-active: var(--conecsa-text);
+  --red-ui-tab-text-color-inactive: var(--conecsa-muted);
+  --red-ui-tab-text-color-disabled-active: rgba(141, 162, 181, 0.55);
+  --red-ui-tab-text-color-disabled-inactive: rgba(141, 162, 181, 0.42);
+  --red-ui-tab-badge-color: var(--conecsa-muted);
+  --red-ui-tab-background: var(--conecsa-panel);
+  --red-ui-tab-background-active: var(--conecsa-panel);
+  --red-ui-tab-background-selected: rgba(22, 163, 182, 0.16);
+  --red-ui-tab-background-inactive: var(--conecsa-control);
+  --red-ui-tab-background-hover: var(--conecsa-hover);
+
+  --red-ui-palette-header-background: #101820;
+  --red-ui-palette-header-color: var(--conecsa-text);
+  --red-ui-palette-content-background: var(--conecsa-panel);
+
+  --red-ui-workspace-button-background: var(--conecsa-panel);
+  --red-ui-workspace-button-background-hover: var(--conecsa-hover);
+  --red-ui-workspace-button-background-active: rgba(22, 163, 182, 0.18);
+  --red-ui-workspace-button-color: var(--conecsa-muted);
+  --red-ui-workspace-button-color-disabled: rgba(141, 162, 181, 0.5);
+  --red-ui-workspace-button-color-focus: var(--conecsa-text);
+  --red-ui-workspace-button-color-hover: var(--conecsa-text);
+  --red-ui-workspace-button-color-active: var(--conecsa-text);
+  --red-ui-workspace-button-color-selected: var(--conecsa-text);
+  --red-ui-workspace-button-color-primary: #ffffff;
+  --red-ui-workspace-button-background-primary: var(--conecsa-cyan);
+  --red-ui-workspace-button-background-primary-hover: var(--conecsa-cyan-hover);
+  --red-ui-workspace-button-color-focus-outline: #67e8f9;
+
+  --red-ui-popover-background: var(--conecsa-panel-raised);
+  --red-ui-popover-border: var(--conecsa-border-strong);
+  --red-ui-popover-color: var(--conecsa-text);
+  --red-ui-popover-button-border-color: var(--conecsa-border);
+  --red-ui-popover-button-border-color-hover: var(--conecsa-cyan);
+
+  --red-ui-menuBackground: #101820;
+  --red-ui-menuDivider: var(--conecsa-border);
+  --red-ui-menuColor: var(--conecsa-text);
+  --red-ui-menuActiveColor: #ffffff;
+  --red-ui-menuActiveBackground: var(--conecsa-hover);
+  --red-ui-menuDisabledColor: rgba(141, 162, 181, 0.52);
+  --red-ui-menuHoverColor: #ffffff;
+  --red-ui-menuHoverBackground: var(--conecsa-hover);
+  --red-ui-menuCaret: var(--conecsa-muted);
+
+  --red-ui-view-background: #0d141c;
+  --red-ui-view-grid-color: rgba(141, 162, 181, 0.11);
+  --red-ui-view-navigator-background: rgba(11, 17, 23, 0.86);
+  --red-ui-view-lasso-stroke: var(--conecsa-cyan);
+  --red-ui-view-lasso-fill: rgba(22, 163, 182, 0.12);
+
+  --red-ui-node-label-color: #17212c;
+  --red-ui-node-port-label-color: #546575;
+  --red-ui-node-border: #647789;
+  --red-ui-node-border-unknown: var(--conecsa-red);
+  --red-ui-node-border-placeholder: #71869a;
+  --red-ui-node-background-placeholder: #e5edf4;
+  --red-ui-node-port-background: #cbd5df;
+  --red-ui-node-port-background-hover: #f8fbff;
+  --red-ui-node-icon-color: #ffffff;
+  --red-ui-node-icon-background-color: rgba(0, 0, 0, 0.12);
+  --red-ui-node-config-background: #cbd5df;
+  --red-ui-node-link-port-background: #dbe4ec;
+  --red-ui-node-status-error-border: #991b1b;
+  --red-ui-node-status-error-background: var(--conecsa-red);
+  --red-ui-node-status-changed-border: #0e7490;
+  --red-ui-node-status-changed-background: var(--conecsa-cyan);
+  --red-ui-node-status-colors-red: var(--conecsa-red);
+  --red-ui-node-status-colors-green: var(--conecsa-green);
+  --red-ui-node-status-colors-yellow: #facc15;
+  --red-ui-node-status-colors-blue: #38bdf8;
+  --red-ui-node-status-colors-grey: #94a3b8;
+  --red-ui-node-status-colors-gray: #94a3b8;
+  --red-ui-node-selected-color: var(--conecsa-amber);
+  --red-ui-port-selected-color: var(--conecsa-amber);
+  --red-ui-link-color: #93a4b4;
+  --red-ui-link-link-color: #a7b6c5;
+  --red-ui-link-disabled-color: #526577;
+  --red-ui-link-link-active-color: var(--conecsa-amber);
+  --red-ui-link-unknown-color: var(--conecsa-red);
+
+  --red-ui-deploy-button-color: #ffffff;
+  --red-ui-deploy-button-color-active: #fecaca;
+  --red-ui-deploy-button-color-disabled: #94a3b8;
+  --red-ui-deploy-button-background: var(--conecsa-red-dark);
+  --red-ui-deploy-button-background-hover: #991b1b;
+  --red-ui-deploy-button-background-active: #641313;
+  --red-ui-deploy-button-background-disabled: #263443;
+  --red-ui-deploy-button-background-disabled-hover: #35485a;
+
+  --red-ui-header-background: #101820;
+  --red-ui-header-accent: var(--conecsa-brand-green);
+  --red-ui-header-button-background-active: var(--conecsa-hover);
+  --red-ui-header-menu-color: var(--conecsa-text);
+  --red-ui-header-menu-color-disabled: rgba(141, 162, 181, 0.56);
+  --red-ui-header-menu-heading-color: #ffffff;
+  --red-ui-header-menu-sublabel-color: var(--conecsa-muted);
+  --red-ui-header-menu-background: #101820;
+  --red-ui-header-menu-item-hover: var(--conecsa-hover);
+  --red-ui-header-menu-item-border-active: var(--conecsa-cyan);
+  --red-ui-headerMenuItemDivider: var(--conecsa-border);
+  --red-ui-headerMenuCaret: var(--conecsa-muted);
+
+  --red-ui-notification-border-default: var(--conecsa-cyan);
+  --red-ui-notification-border-success: var(--conecsa-green);
+  --red-ui-notification-border-warning: var(--conecsa-amber);
+  --red-ui-notification-border-error: var(--conecsa-red);
+
+  --red-ui-debug-message-background: var(--conecsa-control);
+  --red-ui-debug-message-background-hover: var(--conecsa-hover);
+  --red-ui-debug-message-text-color: var(--conecsa-text);
+  --red-ui-debug-message-text-color-meta: #c084fc;
+  --red-ui-debug-message-text-color-object-key: #67e8f9;
+  --red-ui-debug-message-text-color-msg-type-other: #93c5fd;
+  --red-ui-debug-message-text-color-msg-type-string: #fca5a5;
+  --red-ui-debug-message-text-color-msg-type-null: var(--conecsa-muted);
+  --red-ui-debug-message-text-color-msg-type-meta: #60a5fa;
+  --red-ui-debug-message-text-color-msg-type-number: #86efac;
+  --red-ui-debug-message-border: var(--conecsa-border);
+  --red-ui-debug-message-border-hover: var(--conecsa-border-strong);
+  --red-ui-debug-message-border-warning: var(--conecsa-amber);
+  --red-ui-debug-message-border-error: var(--conecsa-red);
+
+  --red-ui-group-default-fill: rgba(18, 26, 35, 0.72);
+  --red-ui-group-default-fill-opacity: 1;
+  --red-ui-group-default-stroke: var(--conecsa-border-strong);
+  --red-ui-group-default-stroke-opacity: 1;
+  --red-ui-group-default-label-color: var(--conecsa-text);
+
+  accent-color: var(--conecsa-cyan);
+  color-scheme: dark;
+  scrollbar-color: #3a4d5f transparent;
+}
+
+body {
+  background: var(--conecsa-bg);
+}
+
+#red-ui-header {
+  border-bottom: 1px solid var(--conecsa-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.26);
+}
+
+#red-ui-header .red-ui-header-logo img {
+  max-height: 30px;
+}
+
+#red-ui-workspace,
+#red-ui-view {
+  background: var(--red-ui-view-background);
+}
+
+.red-ui-palette-category,
+.red-ui-sidebar-header,
+.red-ui-tray-header,
+.red-ui-editor-stack,
+.red-ui-tabs {
+  border-color: var(--conecsa-border);
+}
+
+.red-ui-palette-node {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.red-ui-palette-node:hover {
+  filter: brightness(1.06);
+}
+
+.red-ui-button,
+.red-ui-button-small,
+button,
+.ui-button {
+  border-radius: 5px;
+}
+
+input,
+select,
+textarea,
+.red-ui-typedInput-container {
+  border-radius: 5px;
+}
+
+.red-ui-tab,
+.red-ui-tab-button {
+  border-radius: 5px 5px 0 0;
+}
+
+.red-ui-popover,
+.red-ui-menu-dropdown,
+.ui-dialog {
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.36);
+}
+
+.red-ui-editableList-item-content,
+.red-ui-listItem,
+.red-ui-debug-msg {
+  border-color: var(--conecsa-border);
+}
+
+.ui-icon {
+  filter: invert(1) saturate(0.25) brightness(1.2);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3a4d5f;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #587086;
+}
+
+@media (max-width: 1100px) {
+  :root {
+    --red-ui-primary-font-size: 13px;
+    --red-ui-header-height: 44px;
+  }
+
+  #red-ui-header .red-ui-header-logo img {
+    max-height: 26px;
+  }
+
+  .red-ui-palette-node {
+    min-height: 28px;
+  }
+
+  .red-ui-sidebar-header,
+  .red-ui-palette-header {
+    min-height: 36px;
+  }
+}

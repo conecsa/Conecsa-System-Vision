@@ -1,0 +1,14 @@
+.venv/
+*.env
+build/
+build.pid
+
+# Layers cloned by kas from kas-config.yml — not versioned here.
+/meta-openembedded/
+/meta-tegra/
+/meta-tegra-community/
+/meta-virtualization/
+/poky/
+
+# Flash files
+/jetson-flash/

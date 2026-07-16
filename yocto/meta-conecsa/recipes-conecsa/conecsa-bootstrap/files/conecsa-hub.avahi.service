@@ -1,0 +1,32 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<!--
+  Host-level mDNS advertisement so conecsa-hub-vision can discover this device.
+
+  Installed by conecsa-bootstrap into /etc/avahi/services/. avahi-daemon runs on
+  the host network (NOT inside the bridged api-gateway container), so it
+  advertises the device's real LAN address(es) — which is what discovery needs.
+
+  %h expands to the host name in <name> (set a unique hostname per device so the
+  hub can tell them apart). avahi only substitutes %h inside <name>, not in
+  <txt-record> values — and it RENAMES a colliding instance (`conecsa-x` becomes
+  `conecsa-x-2`), which would make the advertised name disagree with the device's
+  real identity (its hostname, which enrollment puts in the certificate SAN). So
+  conecsa-set-hostname injects `device_id`/`name` TXT records here at boot; a hub
+  reading them keys the device by its true identity. Without them (this file as
+  shipped) the hub falls back to the instance name and reconciles the identity
+  from /enroll/info. gateway/http ports match the docker-compose published ports.
+-->
+
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_conecsa._tcp</type>
+    <port>5000</port>
+    <txt-record>http_port=80</txt-record>
+    <txt-record>gateway_port=5000</txt-record>
+    <!-- Keep in sync with the release (shown in the hub's Devices list). -->
+    <txt-record>version=—</txt-record>
+  </service>
+</service-group>

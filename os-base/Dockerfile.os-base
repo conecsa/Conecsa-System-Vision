@@ -1,0 +1,155 @@
+# ============================================================================
+# Base image for the Conecsa stack on NVIDIA Jetson ARM64 (JetPack 6 / CUDA 12.6).
+#
+# Serves two roles:
+#
+# 1. Base image — ships the heavy ML environment shared by `inference-service`
+#    (and the future `training-service`):
+#      - CUDA 12.6 devel toolchain (needed by pycuda)
+#      - Python 3.10 + pip configured against https://pypi.jetson-ai-lab.io/jp6/cu126
+#      - torch / torchvision / onnxruntime-gpu / tensorrt / pycuda / numpy 1.26.4
+#      - opencv-python / ultralytics / onnx / protobuf / grpcio /
+#        psutil / requests
+#    Here the base CMD (`tail -f /dev/null`) keeps it alive as the "owner" of the
+#    shared named volumes (models, runs).
+#
+# 2. Hardware-management agent — when launched by docker-compose (which overrides
+#    the CMD with `python3 -m agent` and runs the container privileged), the same
+#    image is the host hardware agent: it serves the gRPC HardwareService and
+#    owns network/Wi-Fi (systemd-networkd + wpa_supplicant) and GPIO (trigger
+#    input + count output). `inference-service` is a client. The agent layer
+#    (wpa_supplicant control, jeepney D-Bus, Jetson.GPIO, compiled proto stubs)
+#    is added at the bottom of this file.
+# ============================================================================
+
+FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Sao_Paulo
+
+RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
+        python3.10 \
+        python3.10-dev \
+        python3.10-venv \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+        libgomp1 \
+        libopenblas-dev \
+        build-essential \
+        gcc \
+        g++ \
+        make \
+        wget \
+        curl \
+        ca-certificates \
+        git \
+        libcusparse-12-6 \
+        libcusparse-dev-12-6 \
+        libcusparselt0-cuda-12 \
+        libjpeg-dev \
+        libpng-dev \
+        libtiff-dev \
+        libjemalloc2 \
+        libnuma1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python  python  /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10 && \
+    python3 -m pip install --no-cache-dir --upgrade pip --root-user-action=ignore && \
+    pip config set global.extra-index-url https://pypi.jetson-ai-lab.io/jp6/cu126
+
+ENV CUDA_HOME=/usr/local/cuda-12.6
+ENV CUDA_PATH=/usr/local/cuda-12.6
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu/libcusparseLt/12:/usr/lib/aarch64-linux-gnu/nvidia:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu:${CUDA_HOME}/lib64:/usr/local/cuda/lib64:/usr/local/cuda-12.6/targets/aarch64-linux/lib:${LD_LIBRARY_PATH}
+ENV CUDA_MODULE_LOADING=LAZY
+ENV PYTHONUNBUFFERED=1
+
+# TensorRT Python binding wheel (no aarch64 wheel on the Jetson index).
+ENV TENSORRT_INSTALL=https://github.com/Shattered217/Jetson-Orin-Nano-Wheels/releases/download/6.2.1rc1/tensorrt-10.3.0-cp310-none-linux_aarch64.whl
+
+# Shared ML stack. The install is split because opencv-python needs numpy>=2
+# while pycuda/tensorrt need numpy<2: install opencv first (pulls numpy 2.x),
+# install the CUDA stack with --no-deps, then force numpy back to 1.26.4 for
+# binary compatibility.
+#
+# torch/torchvision MUST come from the Jetson index via --index-url (primary,
+# not extra): PyPI publishes same-version aarch64 wheels built for SBSA
+# servers (cu130) whose more-specific manylinux tag wins the resolution — that
+# build has NO working CUDA on Tegra (torch.cuda.is_available()=False, "driver
+# too old"). The jp6/cu126 wheels are the Tegra-native builds.
+#
+# The Jetson torch additionally needs libcudss at runtime; the pip wheel is
+# installed --no-deps (its cu12.9 cublas/nvrtc dependencies would shadow the
+# CUDA 12.6 stack and break cublasCreate) and the lib is symlinked onto the
+# default loader path.
+COPY os-base/requirements-common.txt /app/
+RUN pip install --no-cache-dir --root-user-action=ignore \
+        -r /app/requirements-common.txt && \
+    pip install --no-cache-dir --no-deps --root-user-action=ignore \
+        --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 \
+        torch==2.11.0 torchvision==0.26.0 && \
+    pip install --no-cache-dir --no-deps --root-user-action=ignore \
+        nvidia-cudss-cu12 && \
+    ln -s /usr/local/lib/python3.10/dist-packages/nvidia/cu12/lib/libcudss*.so.0 \
+        /usr/lib/aarch64-linux-gnu/ && \
+    pip install --no-cache-dir --no-deps --root-user-action=ignore \
+        onnxruntime-gpu "${TENSORRT_INSTALL}" && \
+    pip install --no-cache-dir --root-user-action=ignore \
+        pycuda==2024.1 "onnx>=1.21.0" && \
+    pip install --no-cache-dir --force-reinstall --root-user-action=ignore \
+        numpy==1.26.4
+
+# Shared data directories owned by this container; mounted as named volumes
+# by the services that consume them.
+RUN mkdir -p /data/models /data/runs
+
+# Shared SHM ring helpers — one implementation of the camera + processed-frame
+# ring layouts, importable as `conecsa_shm` by every FROM-base service
+# (inference-service, api-gateway). Installed on the default import path.
+COPY os-base/conecsa_shm/ /usr/local/lib/python3.10/dist-packages/conecsa_shm/
+
+# ── Hardware-management agent ────────────────────────────────────────────────
+# This container doubles as the privileged hardware agent for network/Wi-Fi and
+# GPIO. The agent speaks the wpa_supplicant control protocol directly over the
+# bind-mounted socket (binding its reply socket inside the shared
+# /run/wpa_supplicant so the host daemon can reach it across mount namespaces —
+# wpa_cli's /tmp reply socket cannot), drives systemd-networkd via jeepney
+# (pure-python D-Bus), and owns the Jetson GPIO (trigger input + count output),
+# exposing the per-frame trigger/count to inference-service over shared memory.
+# The agent is launched via `command:` in docker-compose (the base CMD below
+# stays so the image is still usable as inference-service's base without side
+# effects). `wpasupplicant` is installed only to provide `wpa_cli` for manual
+# `docker exec` debugging.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wpasupplicant \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY os-base/agent/requirements.txt /app/agent/requirements.txt
+RUN pip install --no-cache-dir --root-user-action=ignore -r /app/agent/requirements.txt
+
+COPY os-base/agent/ /app/agent/
+COPY proto/ /app/proto/
+RUN mkdir -p /app/agent/proto && python3 -m grpc_tools.protoc \
+        -I/app/proto \
+        --python_out=/app/agent/proto \
+        --pyi_out=/app/agent/proto \
+        --grpc_python_out=/app/agent/proto \
+        /app/proto/hardware.proto
+
+# Upgrade system packages
+RUN apt-get update && apt-get upgrade -y --no-install-recommends \
+    && apt-get autoremove --purge -y \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Keep the container alive so it stays the canonical owner of the volumes when
+# used as a plain base image. docker-compose overrides this with the agent.
+CMD ["tail", "-f", "/dev/null"]

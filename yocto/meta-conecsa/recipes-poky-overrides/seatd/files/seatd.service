@@ -1,0 +1,11 @@
+[Unit]
+Description=Seat management daemon (mediates VT/DRM/input for weston)
+Documentation=man:seatd(1)
+
+[Service]
+ExecStart=/usr/bin/seatd -g video
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

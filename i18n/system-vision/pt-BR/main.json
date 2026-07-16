@@ -1,0 +1,19 @@
+{
+  "navigation": "Navegação",
+  "live_stream_title": "Transmissão ao Vivo",
+  "stream_label": "Stream",
+  "camera_settings_title": "Configurações da Câmera",
+  "camera_label": "Câmera",
+  "flow_editor_title": "Editor de Fluxo",
+  "flow_label": "Automação",
+  "gpio_settings_title": "Configurações de GPIO",
+  "settings_label": "Configurações",
+  "model_training_title": "Treinamento de Modelo",
+  "training_label": "Treinamento",
+  "conversion_wait_before_training": "Um modelo está sendo convertido. Aguarde a conversão terminar antes de abrir o treinamento.",
+  "system_status": "Status do Sistema",
+  "disk_label": "Disco",
+  "cpu_temp": "Temp. da CPU: {{ temp }}",
+  "not_available": "N/D",
+  "stream_active": "Stream Ativo"
+}

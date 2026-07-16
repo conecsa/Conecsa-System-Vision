@@ -1,0 +1,11 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.webcam-server — takes
+# precedence over the root .dockerignore. Allowlist: only what the build COPYs.
+*
+!Cargo.lock
+!webcam-server/
+!webcam-server/**
+!proto/
+!proto/**
+
+# Host build artifacts (the image builds its own target/ inside)
+webcam-server/target

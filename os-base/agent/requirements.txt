@@ -1,0 +1,6 @@
+# Hardware-agent deps layered on top of conecsa-os:base (which already ships
+# grpcio + protobuf). jeepney is a pure-python D-Bus client (no native deps)
+# used to drive systemd-networkd over the system bus.
+jeepney==0.8.0
+# GPIO control (trigger input + binary count output) on the Jetson 40-pin header.
+Jetson.GPIO==2.1.12

@@ -1,0 +1,70 @@
+# Webcam server — standalone Rust binary
+# Target: Jetson Orin Nano (linux/arm64 aarch64)
+
+# ── Stage 1: Build ────────────────────────────────────────────────────────────
+FROM rust:slim-bookworm AS builder
+
+WORKDIR /app
+
+# System dependencies required for camera access, SSL, and protobuf compilation
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    libudev-dev \
+    libv4l-dev \
+    libclang-dev \
+    clang \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace lock file (shared at monorepo root) and crate manifest
+COPY Cargo.lock ./
+COPY webcam-server/Cargo.toml webcam-server/
+
+# Create a minimal workspace manifest so cargo can resolve dependencies
+# without needing the entire monorepo (frontend WASM sources, system-vision/, etc.)
+RUN printf '[workspace]\nmembers = ["webcam-server"]\n' > Cargo.toml
+
+# Copy proto files (needed by build.rs)
+COPY proto/ proto/
+
+# Build dependencies only with a dummy binary (layer cache)
+RUN mkdir -p webcam-server/src && \
+    echo "fn main() {}" > webcam-server/src/main.rs && \
+    cp webcam-server/Cargo.toml webcam-server/Cargo.toml.bak && \
+    cargo build --release --manifest-path webcam-server/Cargo.toml && \
+    rm -rf webcam-server/src && \
+    mv webcam-server/Cargo.toml.bak webcam-server/Cargo.toml
+
+# Copy actual source, build.rs, and rebuild
+COPY webcam-server/build.rs webcam-server/
+COPY webcam-server/src webcam-server/src
+
+# Touch main.rs so cargo detects the change and rebuilds the binary
+RUN touch webcam-server/src/main.rs && \
+    cargo build --release --manifest-path webcam-server/Cargo.toml
+
+# ── Stage 2: Runtime ──────────────────────────────────────────────────────────
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Runtime dependencies: SSL, V4L2 stack + v4l2-ctl for exposure control
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    libv4l-0 \
+    v4l-utils \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the binary from builder
+COPY --from=builder /app/target/release/webcam_server /app/webcam_server
+
+ENV CAMERA_INDEX=0
+ENV CAPTURE_WIDTH=640
+ENV CAPTURE_HEIGHT=640
+ENV CAPTURE_FRAMERATE=30
+ENV RUST_LOG=info
+ENV SHM_NAME=conecsa_frame_shm
+
+CMD ["/app/webcam_server"]

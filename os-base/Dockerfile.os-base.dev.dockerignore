@@ -1,0 +1,9 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.os-base.dev — takes
+# precedence over the root .dockerignore. Allowlist: only what the build COPYs.
+*
+!os-base/
+!os-base/**
+!proto/
+!proto/**
+**/__pycache__
+*.pyc

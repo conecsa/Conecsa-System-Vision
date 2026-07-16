@@ -1,0 +1,71 @@
+# ============================================================================
+# DEV system-vision image (x86_64).
+#
+# Same build-WASM-then-serve-with-nginx pipeline as Dockerfile.system-vision, but pulls
+# the x86_64 Tailwind binary (the production image fetches the aarch64 one for the
+# Jetson). The frontend is built (not bind-mounted) — per the dev choice to serve
+# it like production; rebuild the image to pick up frontend changes.
+# ============================================================================
+
+# Stage 1: Build WASM frontend with Trunk
+FROM rust:slim AS frontend-builder
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    build-essential \
+    curl \
+    protobuf-compiler \
+    libprotobuf-dev \
+    binaryen \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN rustup target add wasm32-unknown-unknown
+RUN cargo install --locked trunk --version 0.18.8
+RUN cargo install --locked wasm-bindgen-cli --version 0.2.92
+
+# Copy workspace Cargo files
+COPY Cargo.toml Cargo.lock /app/
+
+# Copy system-vision crate (contains build.rs, src/, Cargo.toml, index.html)
+COPY system-vision/ ./system-vision/
+
+# Shared design system (Tailwind input) used by system-vision + hub-vision
+COPY styles/ ./styles/
+
+# Copy proto files for compilation
+COPY proto/ ./proto/
+
+# Shared translation catalogs (read by build.rs via ../i18n/system-vision)
+COPY i18n/ ./i18n/
+
+# Tailwind CSS v4 standalone binary — x86_64 (linux-x64) for the dev host.
+RUN curl -fsSL -o /usr/local/bin/tailwindcss \
+    https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 && \
+    chmod +x /usr/local/bin/tailwindcss
+
+RUN cd system-vision && tailwindcss -i ../styles/input.css -o ./styles.css --minify
+
+# Build WASM with Trunk — run from system-vision/ so cargo finds its Cargo.toml
+# directly, avoiding the virtual workspace root. dist goes back to /app/dist/.
+RUN cd system-vision && trunk build --release --dist ../dist
+
+# Stage 2: Serve with Nginx
+FROM nginx:alpine-slim
+
+# openssl mints the temporary self-signed cert for the enrollment TLS block.
+RUN apk add --no-cache openssl
+
+COPY --from=frontend-builder /app/dist/ /usr/share/nginx/html/
+COPY system-vision/config/nginx.conf /etc/nginx/conf.d/default.conf
+COPY system-vision/config/maps.conf /etc/nginx/conf.d/maps.conf
+COPY system-vision/config/nginx-enroll.conf /etc/nginx/conecsa/enroll.conf
+COPY system-vision/config/nginx-enforcing.conf /etc/nginx/conecsa/enforcing.conf
+COPY system-vision/config/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 80 443
+
+CMD ["/entrypoint.sh"]

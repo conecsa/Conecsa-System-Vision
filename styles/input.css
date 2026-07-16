@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@import "./theme.css";
+@import "./fonts.css";
+@import "./base.css";
+@import "./app-shell.css";
+@import "./power.css";
+@import "./app-layout.css";
+@import "./ui-core.css";
+@import "./auth.css";
+@import "./ui-controls.css";
+@import "./ui-feedback.css";
+@import "./ui-overlays.css";
+@import "./label-editor.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@plugin "@tailwindcss/forms";
+
+/* Shared design system for conecsa-system-vision (system-vision) and
+   conecsa-hub-vision (hub-vision). Scan both crates' sources so utilities used in
+   either are generated. Missing globs (e.g. hub-vision absent in the system-vision
+   Docker build context) are tolerated by Tailwind. */
+@source "../system-vision/src/**/*.rs";
+@source "../system-vision/index.html";
+@source "../hub-vision/src/**/*.rs";

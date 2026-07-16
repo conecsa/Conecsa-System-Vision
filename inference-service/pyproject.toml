@@ -1,0 +1,21 @@
+# Project metadata for the headless inference-service.
+#
+# Runtime dependencies are NOT declared here — they are baked into the
+# `conecsa-os-base:base` image (see `os-base/requirements-common.txt`); this service's
+# own `requirements.txt` is intentionally empty. This file exists so tooling
+# (IDEs, mkdocstrings/griffe, linters) can resolve the `api` package, and as a
+# home for future Python tool configuration. There is deliberately no
+# [build-system] table — the service is run, not pip-installed.
+[project]
+name = "conecsa-inference-service"
+version = "2026.2-LTS"
+description = "Headless TensorRT inference service (gRPC control + decode∥infer∥encode pipeline)."
+requires-python = ">=3.10"
+
+# Host-side unit tests (pure logic + in-memory/tmp_path services). Run `pytest`
+# from this directory, or all suites at once via `scripts/test.sh`. `pythonpath`
+# makes the `api` package importable without installing the service; the proto
+# stubs are added to sys.path by tests/conftest.py.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,42 @@
+# ============================================================================
+# API gateway image. A thin HTTP↔gRPC/SHM interface in front of the headless
+# inference-service. Inherits the shared stack (Python + grpcio + protobuf +
+# numpy + opencv) from conecsa-os-base:base; adds only the Flask/Waitress web layer
+# and the compiled proto stubs. No torch / tensorrt — the gateway never infers.
+# ============================================================================
+
+FROM base
+
+WORKDIR /app
+
+# Web stack (grpcio/protobuf/numpy/opencv already in the base).
+COPY api-gateway/requirements.txt /app/
+RUN pip install --no-cache-dir --root-user-action=ignore -r /app/requirements.txt
+
+ENV PYTHONPATH=/app/api-gateway:/usr/lib/python3.10/dist-packages:/usr/local/lib/python3.10/dist-packages
+
+# Application code
+COPY api-gateway/ /app/api-gateway/
+
+# Compile the proto files the gateway consumes (inference control + hardware
+# agent) plus the detection schemas used for protobuf content-negotiation.
+# grpc_tools.protoc ships in conecsa-os-base:base.
+COPY proto/ /app/proto/
+RUN mkdir -p /app/api-gateway/gateway/proto && \
+    python3 -m grpc_tools.protoc \
+        -I/app/proto \
+        --python_out=/app/api-gateway/gateway/proto \
+        --pyi_out=/app/api-gateway/gateway/proto \
+        --grpc_python_out=/app/api-gateway/gateway/proto \
+        /app/proto/*.proto && \
+    touch /app/api-gateway/gateway/proto/__init__.py
+
+EXPOSE 5000
+WORKDIR /app/api-gateway
+
+# waitress is thread-per-connection: every MJPEG feed and SSE stream pins one
+# thread, so the pool must sit above the worst-case concurrent stream count.
+# --channel-timeout frees a thread quickly when a tab closes without a clean FIN
+# (the 15s SSE keepalive keeps live streams within the window). `exec` keeps
+# python as PID 1 so docker stop reaches it.
+CMD ["sh", "-c", "exec python3 -m waitress --host=0.0.0.0 --port=${GATEWAY_PORT:-5000} --threads=${WAITRESS_THREADS:-32} --channel-timeout=30 main:app"]

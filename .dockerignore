@@ -1,0 +1,88 @@
+# Root-context safety net. Every compose service has a per-Dockerfile
+# BuildKit allowlist next to its Dockerfile (`<Dockerfile>.dockerignore`),
+# which takes FULL precedence over this file — this one only governs builds
+# that lack their own (e.g. ad-hoc `docker build` runs).
+#
+# NOTE: unlike .gitignore, patterns here anchor at the context root —
+# `target/` alone would NOT match system-vision/target. Use `**/` for nested.
+
+# Git files
+.git/
+.gitignore
+.gitattributes
+
+# Yocto BSP tree (hundreds of GB) — never part of any image
+yocto/
+
+# Build artifacts
+**/target
+**/node_modules
+**/dist
+build/
+bin/
+site/
+
+# Python virtual environments and caches
+**/__pycache__
+**/.venv
+**/.mypy_cache
+**/.pytest_cache
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Not built from the root context: hub-vision is a native desktop app
+# (scripts/build-hub.sh); flow builds from its own ./flow context.
+hub-vision/
+flow/
+
+# Runtime data (mounted/uploaded at runtime, not baked)
+inference-service/uploaded_models/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# Documentation
+docs/
+*.md
+
+# Test files
+**/tests
+*.test
+*.spec
+test_*.py
+example_*.py
+
+# Development files
+*.dev
+*.local
+
+# Large unnecessary files
+*.deb
+cuda-keyring_*.deb
+
+# Wasm build artifacts (not needed in containers)
+wasm-bindgen/
+wasm32-unknown-unknown/
+
+jetson-inference/
+tensorrt-service/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# SAM3 checkpoint (~3.5GB): excluded everywhere EXCEPT the training-service
+# build, whose per-Dockerfile allowlist admits training-service/assets/.
+training-service/assets/sam3.pt

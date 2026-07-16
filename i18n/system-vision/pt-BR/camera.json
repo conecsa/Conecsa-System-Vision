@@ -1,0 +1,15 @@
+{
+  "title": "Configurações da Câmera",
+  "failed_to_load_info": "Falha ao carregar informações da câmera: {{ err }}",
+  "settings_applied": "Configurações da câmera aplicadas — a captura está reiniciando com a nova configuração.",
+  "failed_to_apply": "Falha ao aplicar as configurações da câmera: {{ err }}",
+  "applying": "Aplicando...",
+  "apply_settings": "Aplicar Configurações",
+  "capture_device": "Dispositivo de Captura",
+  "no_devices_hint": "Nenhum dispositivo V4L2 encontrado. Executando no Docker? Informe",
+  "resolution": "Resolução",
+  "frame_rate": "Taxa de Quadros",
+  "resolution_help": "Os quadros são ajustados (letterbox) para 640×640 antes da inferência YOLO; uma resolução de captura maior afeta principalmente o stream exibido.",
+  "stereo_overlay": "Sobreposição Estéreo 3D",
+  "stereo_overlay_help": "Mescla as imagens esquerda e direita da câmera em uma única visão sobreposta para o stream e a detecção. Quando ativado, use o botão 3D no vídeo ao vivo para ajustar a mesclagem e o alinhamento."
+}

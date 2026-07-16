@@ -1,0 +1,281 @@
+# ============================================================================
+# DEV stack for x86_64 + NVIDIA GPU — a faithful mirror of the production
+# docker-compose.yml that reuses the SAME service Dockerfiles and the SAME
+# behavior, substituting only the parts that are exclusive to the Jetson:
+#
+#   - os-base       → builds Dockerfile.os-base.dev (x86 PyPI tensorrt-cu12/pycuda
+#                     instead of the aarch64 jetson-ai-lab wheels) and runs as a
+#                     plain base/volume-owner (the GPIO/Wi-Fi hardware agent is
+#                     Jetson-only).
+#   - system-vision → builds Dockerfile.system-vision.dev (x86_64 Tailwind binary).
+#   - inference /   → REMOVE the Tegra host-library bind-mounts, the aarch64
+#     training        LD_LIBRARY_PATH / jemalloc LD_PRELOAD, GPIO shm, and
+#                     privileged/pid:host (all Jetson-specific); GPU comes from
+#                     the NVIDIA container toolkit via `deploy.resources`.
+#
+# Everything else (webcam-server, api-gateway, flow, the service Dockerfiles,
+# the compose-network service-name wiring, volumes) is reused unchanged.
+#
+#   docker compose -f docker-compose.dev.yml up -d --build
+# ============================================================================
+
+services:
+  os-base:
+    image: conecsa-os-base:dev
+    build:
+      context: .
+      dockerfile: os-base/Dockerfile.os-base.dev
+    container_name: conecsa-os-base
+    # The Jetson hardware agent (GPIO/Wi-Fi/network) is device-only; off-device
+    # `os-base` is just the shared base image + owner of the named data volumes.
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - models-data:/data/models
+      - runs-data:/data/runs
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+
+  webcam-server:
+    build:
+      context: .
+      dockerfile: webcam-server/Dockerfile.webcam-server
+    container_name: conecsa-webcam-server
+    ipc: shareable
+    environment:
+      - CAMERA_INDEX=0
+      - CAPTURE_WIDTH=2560
+      - CAPTURE_HEIGHT=720
+      - CAPTURE_FRAMERATE=60
+      - RUST_LOG=info
+      - SHM_NAME=conecsa_frame_shm
+      - SHM_SLOT_MIN_BYTES=16777216
+    # privileged grants access to all /dev/video* (incl. hot-plugged nodes) so
+    # the server starts with no camera (publishing `no_camera`, no frames) and
+    # picks one up when it appears — same as production.
+    privileged: true
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+
+  inference-service:
+    build:
+      context: .
+      dockerfile: inference-service/Dockerfile.inference-service
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-inference-service
+    ipc: "service:webcam-server"
+    environment:
+      # GPU
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,video
+      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_MODULE_LOADING=LAZY
+      - CUDA_LAUNCH_BLOCKING=0
+      - PYTHONUNBUFFERED=1
+      - SHM_NAME=conecsa_frame_shm
+      # Camera defaults — must stay in sync with webcam-server above.
+      - CAMERA_INDEX=0
+      - CAPTURE_WIDTH=2560
+      - CAPTURE_HEIGHT=720
+      - CAPTURE_FRAMERATE=60
+      - CAPTURE_AUTO_EXPOSURE=false
+      - CAPTURE_EXPOSURE_TIME=166
+      - PROCESSING_DECODE_SCALE=2
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - CAPTURE_RGB_RED=128
+      - CAPTURE_RGB_GREEN=128
+      - CAPTURE_RGB_BLUE=128
+      - CAPTURE_GAMMA=100
+      - CAPTURE_GAIN=0
+      - PYTORCH_USE_FP16=1
+      - PYTORCH_DISABLE_CUDNN=0
+      - PYTORCH_PERF_MODE=1
+      - PYTORCH_SYNC_CUDA=0
+      - TENSORRT_RUNTIME=1
+      - TENSORRT_AUTO_REBUILD_ENGINE=1
+      - TENSORRT_WORKSPACE_MB=192
+      - TENSORRT_CONTEXTS=2
+      - WAITRESS_THREADS=32
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+    volumes:
+      - models-data:/data/models
+      - detections-data:/data/detections
+    depends_on:
+      - os-base
+      - webcam-server
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50061), timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile.api-gateway
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-api-gateway
+    ipc: "service:webcam-server"
+    environment:
+      - INFERENCE_GRPC_ADDR=inference-service:50061
+      - HARDWARE_AGENT_ADDR=os-base:50051
+      - TRAINING_GRPC_ADDR=training-service:50071
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - SHM_NAME=conecsa_frame_shm
+      - PROCESSED_SHM_NAME=conecsa_processed_shm
+      - GATEWAY_PORT=5000
+      - WAITRESS_THREADS=32
+      # Device enrollment: key/CSR under CONECSA_CERT_DIR + /enroll/*. Tokenless
+      # pairing by default; set DEVICE_PAIR_TOKEN only to require a shared secret.
+      - CONECSA_CERT_DIR=/etc/conecsa/certs
+      - DEVICE_PAIR_TOKEN=${DEVICE_PAIR_TOKEN:-}
+      # In-container mDNS works on the dev bridge for local hub testing.
+      - HUB_MDNS_ENABLED=${HUB_MDNS_ENABLED:-1}
+    ports:
+      - "5000:5000"
+    volumes:
+      - conecsa-certs:/etc/conecsa/certs
+      # Same host hostname → device id unification as production (here the "host"
+      # is the dev machine; the in-container mDNS advertises the same id).
+      - /etc/hostname:/etc/conecsa/host_hostname:ro
+    depends_on:
+      - os-base
+      - webcam-server
+      - inference-service
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:5000/api/v1/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  training-service:
+    build:
+      context: .
+      dockerfile: training-service/Dockerfile.training-service
+      additional_contexts:
+        base: service:os-base
+    container_name: conecsa-training-service
+    ipc: "service:webcam-server"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_VISIBLE_DEVICES=0
+      - CUDA_MODULE_LOADING=LAZY
+      - PYTHONUNBUFFERED=1
+      - SHM_NAME=conecsa_frame_shm
+      - STEREO_COMBINE=blend
+      - STEREO_BLEND_ALPHA=0.5
+      - GATEWAY_ADDR=http://api-gateway:5000
+      - TRAIN_BATCH=4
+      - TRAIN_WORKERS=0
+      - TRAIN_STALL_TIMEOUT_SEC=3600
+      - SAM3_CHECKPOINT=/app/training-service/assets/sam3.pt
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+    volumes:
+      - training-data:/data/training
+    depends_on:
+      - os-base
+      - webcam-server
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 50071), timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  system-vision:
+    build:
+      context: .
+      dockerfile: system-vision/Dockerfile.system-vision.dev
+    container_name: conecsa-system-vision
+    environment:
+      - API_BASE_URL=${API_BASE_URL:-http://api-gateway:5000}
+    ports:
+      - "${SYSTEM_VISION_PORT:-80}:80"
+      - "${SYSTEM_VISION_TLS_PORT:-443}:443"
+    volumes:
+      - conecsa-certs:/etc/conecsa/certs
+    depends_on:
+      - inference-service
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  flow:
+    build:
+      context: ./flow
+      dockerfile: Dockerfile
+    container_name: conecsa-flow
+    environment:
+      - TZ=${TZ:-America/Sao_Paulo}
+      - INFERENCE_URL=${INFERENCE_URL:-http://api-gateway:5000}
+    ports:
+      - "${FLOW_PORT:-1880}:1880"
+    volumes:
+      - flow-data:/data
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+    networks:
+      - conecsa-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:1880"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  conecsa-network:
+    driver: bridge
+
+volumes:
+  models-data:
+    name: conecsa-models-data
+  detections-data:
+    name: conecsa-detections-data
+  runs-data:
+    name: conecsa-runs-data
+  training-data:
+    name: conecsa-training-data
+  flow-data:
+    name: conecsa-flow-data
+  conecsa-certs:
+    name: conecsa-certs-dev

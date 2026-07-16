@@ -1,0 +1,20 @@
+[package]
+name = "conecsa-system-vision"
+version = "2026.2.0"
+description = "Conecsa Object Detection Application"
+license = "MIT"
+authors = ["Conecsa Automação"]
+edition = "2024"
+
+# Designed and developed by Cristiano Leite. https://github.com/CristianosLeite
+[build]
+target = "./index.html"
+
+# Rebuild when the shared translation catalogs change (cargo's rerun-if-changed
+# only helps once cargo runs; trunk must notice the edit first).
+[watch]
+watch = [".", "../i18n/system-vision"]
+
+[serve]
+port = 80
+open = false

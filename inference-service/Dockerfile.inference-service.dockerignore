@@ -1,0 +1,16 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.inference-service — takes
+# precedence over the root .dockerignore. Allowlist: only what the build COPYs.
+*
+!inference-service/
+!inference-service/**
+!proto/
+!proto/**
+
+# Runtime data (mounted via volume) and dev-only files
+inference-service/uploaded_models
+inference-service/tests
+inference-service/.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+*.pyc

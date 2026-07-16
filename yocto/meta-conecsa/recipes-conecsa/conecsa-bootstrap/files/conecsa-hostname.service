@@ -1,0 +1,14 @@
+[Unit]
+Description=Assign a unique Conecsa hostname (derived from board serial)
+# Must run before the hostname is read by networking and mDNS advertising, so
+# the advertised name/host is already unique on first boot.
+After=systemd-remount-fs.service
+Before=systemd-networkd.service systemd-hostnamed.service avahi-daemon.service nss-lookup.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/conecsa-set-hostname
+
+[Install]
+WantedBy=multi-user.target

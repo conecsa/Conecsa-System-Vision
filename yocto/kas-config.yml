@@ -1,0 +1,92 @@
+header:
+  version: 14
+
+machine: jetson-orin-nano-devkit-nvme
+distro: conecsa
+target: conecsa-image
+
+# DISTRO=conecsa is provided by meta-conecsa/conf/distro/conecsa.conf —
+# it replicates the essential tegrademo defines WITHOUT the INHERIT of
+# tegra-support-sanity (which rewrote bblayers.conf in a way incompatible
+# with the kas multi-repo layout). For that reason the tegra-demo-distro
+# repo was removed — it is no longer needed.
+repos:
+  poky:
+    url: https://git.yoctoproject.org/git/poky
+    branch: scarthgap
+    layers:
+      meta:
+      meta-poky:
+      meta-yocto-bsp:
+
+  meta-openembedded:
+    url: https://github.com/openembedded/meta-openembedded.git
+    branch: scarthgap
+    layers:
+      meta-oe:
+      meta-python:
+      meta-networking:
+      meta-filesystems:
+
+  meta-virtualization:
+    url: https://git.yoctoproject.org/git/meta-virtualization
+    branch: scarthgap
+
+  meta-tegra:
+    url: https://github.com/OE4T/meta-tegra.git
+    branch: scarthgap
+
+  meta-tegra-community:
+    url: https://github.com/OE4T/meta-tegra-community.git
+    branch: scarthgap
+
+  meta-conecsa:
+    path: meta-conecsa
+
+local_conf_header:
+  conecsa: |
+    # Force tegraflash so the build produces artifacts ready for l4t_initrd_flash.
+    IMAGE_FSTYPES = "tegraflash"
+
+    # Removed legacy stack — mirrors what the SSH inventory found to be
+    # superfluous on the stock JetPack 6.2.2.
+    PACKAGE_EXCLUDE += "bluez5 modemmanager packagekit snap snapd avahi-daemon \
+                        cups kerneloops jtop xorg-kiosk"
+
+    # Extra room for /var/lib/docker (conecsa-os-base:base image is ~6 GB + others).
+    IMAGE_ROOTFS_EXTRA_SPACE = "30000000"
+
+    # Layout of the Orin Nano 128 GB NVMe: single ~115 GB rootfs.
+    # Disables A/B redundancy (meta-conecsa/conf/distro/include/conecsa.inc
+    # sets USE_REDUNDANT_FLASH_LAYOUT_DEFAULT="1" as the distro default, but
+    # on this hardware we want the entire SSD available for /var/lib/docker;
+    # rollback is done by manual re-flash, not automatic A/B).
+    USE_REDUNDANT_FLASH_LAYOUT = "0"
+    # 115_003_392_000 bytes = 28_077_000 * 4096 (4 KiB aligned) ~ 115 GB.
+    ROOTFSPART_SIZE_DEFAULT = "115003392000"
+    # 240_000_000 sectors * 512 = 122.88 GB — uses ~96% of the SSD, leaving
+    # ~5 GB of margin for the NVMe controller's overprovisioning.
+    TEGRA_EXTERNAL_DEVICE_SECTORS = "240000000"
+
+    # Release tag.
+    CONECSA_RELEASE_TAG = "v1.0-yocto"
+
+    # Parallelism is auto-detected by bitbake (cpu_count).
+    # Manual override if needed:
+    # BB_NUMBER_THREADS = "8"
+    # PARALLEL_MAKE = "-j 8"
+
+    # Accept the NVIDIA EULAs — required by most meta-tegra recipes.
+    ACCEPT_FSL_EULA = "1"
+    LICENSE_FLAGS_ACCEPTED += "commercial"
+
+    # Hostname mirrors the current JetPack one (checked via SSH on the Jetson).
+    hostname:pn-base-files = "conecsa-system-vision"
+
+    # Memory: force THP=madvise at boot (Yocto default = always, JetPack = madvise).
+    # With THP=always, glibc malloc under many threads (inference-service has
+    # 19 in waitress + 8 in the TRT worker) fragments 2 MB pages that the
+    # kernel cannot return piecewise, inflating RSS without bound. Paired
+    # with zram-swap (vm.swappiness=100) and jemalloc via LD_PRELOAD in
+    # docker-compose.yml.
+    KERNEL_ARGS:append = " transparent_hugepage=madvise"

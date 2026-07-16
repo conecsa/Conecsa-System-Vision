@@ -1,0 +1,14 @@
+# Node dependencies (installed inside the container). Anchored `node_modules/`
+# would only match the context root — `**/` also catches the ~160MB
+# nodes/conecsa-system-vision/node_modules.
+**/node_modules
+
+# OS / editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs
+*.log

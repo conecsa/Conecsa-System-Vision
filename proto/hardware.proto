@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package hardware;
+
+// gRPC contract between `inference-service` (client) and the `os` container's
+// hardware-management agent (server). The agent owns all host hardware access:
+// network/Wi-Fi configuration (systemd-networkd + wpa_supplicant) and — once
+// migrated — GPIO control. This is the first real gRPC *service* in the repo;
+// the other .proto files define message schemas only.
+
+message Empty {}
+
+// Generic result for write/apply operations.
+message Result {
+  bool success = 1;
+  string message = 2;
+}
+
+// ── Network / IP ────────────────────────────────────────────────────────────
+
+// Which managed interface a request targets.
+enum Interface {
+  WIRED = 0;
+  WIFI = 1;
+}
+
+// IPv4 state of a single managed interface.
+message InterfaceConfig {
+  string name = 1;             // host interface name (e.g. "enP8p1s0", "wlP1p1s0")
+  string method = 2;           // "auto" (DHCP) or "static"
+  string address = 3;          // empty when unknown / DHCP not yet leased
+  uint32 prefix = 4;           // subnet prefix length (0 when unknown)
+  string gateway = 5;
+  repeated string dns = 6;
+  bool present = 7;            // false when no such interface exists on the host
+}
+
+// Current Wi-Fi association state (subset of `wpa_cli status`).
+message WifiStatus {
+  string ssid = 1;             // associated SSID ("" when not connected)
+  string state = 2;            // wpa_state, e.g. "COMPLETED", "SCANNING", "DISCONNECTED"
+  int32 signal = 3;            // RSSI dBm of the current BSS (0 when unknown)
+}
+
+// Full snapshot returned by GetNetworkConfig.
+message NetworkConfig {
+  InterfaceConfig wired = 1;
+  InterfaceConfig wifi = 2;    // IP config of the wireless interface
+  WifiStatus wifi_status = 3;  // association state of the wireless interface
+}
+
+message IpConfigRequest {
+  Interface interface = 1;
+  string method = 2;           // "auto" or "static"
+  string address = 3;          // required when method == "static"
+  uint32 prefix = 4;           // required when method == "static"
+  string gateway = 5;          // optional
+  repeated string dns = 6;     // optional
+}
+
+// ── Wi-Fi ─────────────────────────────────────────────────────────────────
+
+message WifiNetwork {
+  string ssid = 1;
+  int32 signal = 2;            // RSSI dBm (higher/closer to 0 is stronger)
+  string security = 3;         // "WPA3" | "WPA2" | "WEP" | "OPEN"
+  bool in_use = 4;             // currently associated
+  bool saved = 5;              // a network block already exists for this SSID
+}
+
+message WifiScanResult {
+  repeated WifiNetwork networks = 1;
+}
+
+message WifiConnectRequest {
+  string ssid = 1;
+  string password = 2;         // empty for open networks
+}
+
+message WifiConnectResult {
+  bool success = 1;
+  string state = 2;            // final wpa_state (e.g. "COMPLETED")
+  string message = 3;
+}
+
+message WifiForgetRequest {
+  string ssid = 1;
+}
+
+// ── GPIO ─────────────────────────────────────────────────────────────────────
+// The 7 output pins are now freely-controllable digital outputs (driven on
+// demand from Node-RED over gRPC), not a binary detection counter. The pin-7
+// trigger gate is unchanged and still rides the per-frame SHM channel.
+
+// Current driven level of a single output pin (BOARD numbering).
+message GpioPinState {
+  uint32 pin = 1;
+  bool level = 2;              // true = HIGH, false = LOW
+}
+
+message GpioStatus {
+  bool available = 1;
+  bool enabled = 2;            // trigger/gate mode on
+  reserved 3;                  // was: uint32 count (binary detection counter)
+  repeated GpioPinState pins = 4;  // current level of each controllable output pin
+}
+
+message GpioTriggerRequest {
+  bool enabled = 1;
+}
+
+// Drive a single output pin HIGH/LOW.
+message GpioPinRequest {
+  uint32 pin = 1;
+  bool level = 2;             // true = HIGH, false = LOW
+}
+
+// ── System metrics (host introspection — CPU/RAM/disk/temp/GPU from sysfs) ────
+// Lives with the hardware agent (it already owns host introspection). The
+// `optional` floats are absent when the sensor/metric is unavailable, so the
+// gateway can relay JSON `null` (matching the previous shape).
+message SystemStatus {
+  float  cpu_usage = 1;            // percent
+  float  ram_usage = 2;            // percent
+  uint64 ram_total = 3;            // bytes
+  uint64 ram_used = 4;
+  float  disk_usage = 5;           // percent
+  uint64 disk_total = 6;
+  uint64 disk_used = 7;
+  optional float temperature = 8;       // °C (CPU/SoC)
+  optional float gpu_usage = 9;         // percent
+  optional float gpu_temperature = 10;  // °C
+  optional float gpu_freq_mhz = 11;
+  optional float gpu_max_freq_mhz = 12;
+}
+
+// ── System power (shutdown / restart the host) ────────────────────────────
+
+// Valid values for action: "shutdown" | "restart"
+message SystemPowerRequest {
+  string action = 1;
+}
+
+message SystemPowerResult {
+  bool success = 1;
+  string message = 2;
+}
+
+// ── Service ─────────────────────────────────────────────────────────────────
+
+service HardwareService {
+  // Network / IP
+  rpc GetNetworkConfig(Empty) returns (NetworkConfig);
+  rpc SetIpConfig(IpConfigRequest) returns (Result);
+
+  // Wi-Fi
+  rpc ScanWifi(Empty) returns (WifiScanResult);
+  rpc ConnectWifi(WifiConnectRequest) returns (WifiConnectResult);
+  rpc ForgetWifi(WifiForgetRequest) returns (Result);
+
+  // GPIO control. The pin-7 trigger gate uses SHM per-frame; the rest are
+  // config/event-style ops served here: enable the gate, drive output pins,
+  // and read availability + current pin levels.
+  rpc GetGpioStatus(Empty) returns (GpioStatus);
+  rpc SetGpioTrigger(GpioTriggerRequest) returns (Result);
+  rpc SetGpioPin(GpioPinRequest) returns (Result);
+
+  // System metrics (CPU/RAM/disk/temperature/GPU)
+  rpc GetSystemStatus(Empty) returns (SystemStatus);
+
+  // System power (shutdown / restart the host)
+  rpc SystemPower(SystemPowerRequest) returns (SystemPowerResult);
+}

@@ -1,0 +1,12 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.training-service — takes
+# precedence over the root .dockerignore. Allowlist: only what the build
+# COPYs. Unlike every other context, this one ADMITS training-service/assets/
+# — the ~3.5GB SAM3 checkpoint is baked into this image only.
+*
+!training-service/
+!training-service/**
+!proto/
+!proto/**
+training-service/tests
+**/__pycache__
+*.pyc

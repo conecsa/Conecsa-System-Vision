@@ -1,0 +1,10 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.api-gateway — takes
+# precedence over the root .dockerignore. Allowlist: only what the build COPYs.
+*
+!api-gateway/
+!api-gateway/**
+!proto/
+!proto/**
+api-gateway/tests
+**/__pycache__
+*.pyc

@@ -1,0 +1,19 @@
+[Match]
+Name=eth* en*
+
+[Network]
+DHCP=yes
+LinkLocalAddressing=ipv4
+
+[DHCPv4]
+UseDomains=yes
+# Don't accept DHCP-pushed NTP servers — the LAN here advertises an
+# unreachable NTP host (8.0.160.200) via option 42, which blocks
+# systemd-timesyncd from ever falling back to public servers.
+UseNTP=no
+
+[DHCPv6]
+UseNTP=no
+
+[IPv6AcceptRA]
+UseNTP=no

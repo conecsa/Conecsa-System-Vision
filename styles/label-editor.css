@@ -1,0 +1,69 @@
+/* Label editor canvas (training) SVG presentation. */
+
+@layer components {
+  /* ── Label editor canvas (training) ─────────────────────────────────────── */
+  /* SVG presentation: static styling lives here; per-class colors and the
+     selection-driven fill/stroke-width stay as element attributes (which CSS
+     here intentionally does not set, so they take effect). */
+  .ui-label-box {
+    pointer-events: all;
+    cursor: move;
+  }
+
+  /* SAM mode: boxes are click-through so a click becomes a point prompt. */
+  .ui-label-box-locked {
+    pointer-events: none;
+  }
+
+  .ui-label-text {
+    pointer-events: none;
+    paint-order: stroke;
+    stroke: rgba(0, 0, 0, 0.67);
+    stroke-width: 3px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .ui-label-handle {
+    fill: #ffffff;
+    stroke-width: 1.5;
+    pointer-events: all;
+  }
+
+  .ui-label-handle-nwse {
+    cursor: nwse-resize;
+  }
+
+  .ui-label-handle-nesw {
+    cursor: nesw-resize;
+  }
+
+  .ui-label-suggestion {
+    fill: none;
+    stroke: var(--accent-yellow);
+    stroke-width: 2.5;
+    stroke-dasharray: 8 5;
+    pointer-events: none;
+  }
+
+  .ui-label-point {
+    stroke: #fff;
+    stroke-width: 2;
+    pointer-events: none;
+  }
+
+  .ui-label-point-positive {
+    fill: var(--color-success);
+  }
+
+  .ui-label-point-negative {
+    fill: var(--color-danger);
+  }
+
+  .ui-label-draft {
+    fill: none;
+    stroke-width: 2.5;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
+  }
+}

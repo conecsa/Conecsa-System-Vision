@@ -1,0 +1,328 @@
+syntax = "proto3";
+
+package training;
+
+// Contract between the API gateway (client) and the training-service
+// (server, :50071). The training-service owns the working dataset (camera
+// captures + YOLO labels + classes), the SAM3-assisted labeling worker and
+// the ultralytics training job. Heavy work (torch) always runs in child
+// processes; this service is only control-plane.
+//
+// Images are small (640x640 JPEG, well under the gRPC message limit), so
+// they travel as unary bytes instead of SHM/streaming.
+
+message Empty {}
+
+message Result {
+  bool success = 1;
+  string message = 2;
+}
+
+// ── Datasets ──────────────────────────────────────────────────────────────────
+// Multiple datasets live under {DATA_DIR}/datasets/{dataset_id}/. Every
+// dataset-scoped RPC carries the dataset_id explicitly — the server keeps no
+// "active dataset" state.
+
+message DatasetId { string dataset_id = 1; }
+message DatasetName { string name = 1; }
+message DatasetRename {
+  string dataset_id = 1;
+  string name = 2;
+}
+message DatasetCover {
+  string dataset_id = 1;
+  string image_id = 2;
+}
+message DatasetMeta {
+  string dataset_id = 1;
+  string name = 2;
+  double created_at = 3;            // UNIX timestamp
+  string cover_image_id = 4;        // resolved server-side: explicit cover if it
+                                    // still exists, else first image, else ""
+  uint32 image_count = 5;
+  uint32 labeled_count = 6;
+  uint32 class_count = 7;
+}
+message DatasetList { repeated DatasetMeta datasets = 1; }
+
+// ZIP import of a pre-existing YOLO-format dataset (images/ + labels/ + data.yaml).
+// First message must be `meta`; the rest are 1MB `chunk`s of the ZIP file.
+message DatasetUploadMeta { string name = 1; }
+message DatasetUploadChunk {
+  oneof payload {
+    DatasetUploadMeta meta = 1;
+    bytes chunk = 2;
+  }
+}
+message DatasetUploadResult {
+  bool success = 1;
+  string message = 2;               // user-facing validation error on failure
+  DatasetMeta dataset = 3;
+}
+
+// Download of a dataset as a YOLO-format ZIP (images/ + labels/ + data.yaml) —
+// the exact layout UploadDataset accepts, so exports round-trip.
+message DatasetExportChunk { bytes chunk = 1; }
+
+message DatasetInfo {
+  uint32 image_count = 1;
+  uint32 labeled_count = 2;         // images with at least one box
+  repeated string classes = 3;
+  uint32 min_images = 4;            // training gate (20)
+  string dataset_id = 5;
+  string name = 6;
+  string cover_image_id = 7;
+}
+
+message ImageInfo {
+  string image_id = 1;
+  double created_at = 2;            // UNIX timestamp
+  bool labeled = 3;
+  uint32 box_count = 4;
+  bool replica = 5;                 // created via ReplicateImage (gallery hint only)
+}
+
+// Duplicate one labeled image (image + its labels) `count` times to quickly
+// grow the dataset past the training minimum. Rejected for already-replicated
+// or unlabeled sources; `count` clamped to 1..50 server-side.
+message ReplicateRequest {
+  string dataset_id = 1;
+  string image_id = 2;
+  uint32 count = 3;
+}
+message ImageList { repeated ImageInfo images = 1; }
+message ImageId {
+  string image_id = 1;
+  string dataset_id = 2;
+}
+message ImageBlob {
+  string image_id = 1;
+  bytes jpeg = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+// ── Labels (normalized YOLO format, matching the labels/*.txt rows) ──────────
+
+message Box {
+  uint32 class_id = 1;
+  float cx = 2;                     // all normalized 0..1 on the 640x640 image
+  float cy = 3;
+  float w = 4;
+  float h = 5;
+}
+message Labels {
+  string image_id = 1;
+  repeated Box boxes = 2;
+  string dataset_id = 3;
+}
+
+// ── Pre-labeled image ingest (hub detection records → dataset) ───────────────
+
+// A pre-label carried by class name; coordinates are normalized corners on the
+// uploaded (pre-letterbox) image. The service maps them into the 640x640
+// letterbox space and resolves the class by name, appending it when missing.
+message NamedBox {
+  string class_name = 1;
+  float x1 = 2;                     // all normalized 0..1 on the uploaded image
+  float y1 = 3;
+  float x2 = 4;
+  float y2 = 5;
+}
+
+// One externally captured image (e.g. a hub detection record's clean frame)
+// plus its pre-labels. The JPEG is letterboxed to 640x640 on ingest, like a
+// camera capture. Unary: snapshot JPEGs stay far below the gRPC message cap.
+message LabeledImageUpload {
+  string dataset_id = 1;
+  bytes jpeg = 2;                   // original (non-letterboxed) JPEG
+  repeated NamedBox boxes = 3;
+}
+
+// ── Classes ───────────────────────────────────────────────────────────────────
+
+message ClassName {
+  string name = 1;
+  string dataset_id = 2;
+}
+message ClassEdit {
+  uint32 index = 1;
+  string name = 2;
+  string dataset_id = 3;
+}
+message ClassIndex {
+  uint32 index = 1;
+  string dataset_id = 2;
+}
+message ClassList { repeated string classes = 1; }
+
+// ── SAM-assisted labeling ─────────────────────────────────────────────────────
+
+message SamStatus {
+  bool available = 1;               // sam3 importable + checkpoint present
+  bool loaded = 2;                  // worker subprocess alive with model on GPU
+  string message = 3;
+}
+message Point {
+  float x = 1;                      // normalized 0..1
+  float y = 2;
+  bool positive = 3;                // false = negative/background click
+}
+message SamRequest {
+  string image_id = 1;
+  string text_prompt = 2;           // concept prompt, e.g. "bottle" (optional)
+  repeated Point points = 3;        // click prompts (optional)
+  float threshold = 4;              // confidence threshold 0..1 (0 → worker default 0.5)
+  string dataset_id = 5;
+}
+message SamResult {
+  bool success = 1;
+  string message = 2;
+  repeated Box boxes = 3;           // class_id is unset — suggestions only
+  repeated float scores = 4;        // parallel to boxes
+}
+
+// ── Training job (single job at a time) ──────────────────────────────────────
+
+message TrainRequest {
+  string model_name = 1;            // mandatory; best.pt becomes {model_name}.pt
+                                    // (optional when federated — no upload happens)
+  uint32 epochs = 2;                // 0 → default (50)
+  uint32 batch = 3;                 // 0 → default (env TRAIN_BATCH)
+  string dataset_id = 4;            // dataset to train on (mandatory)
+  uint32 patience = 5;              // early-stop after N epochs w/o improvement
+                                    // (0 → default 50)
+  string initial_weights_id = 6;    // start from a stashed checkpoint (UploadWeights)
+                                    // instead of the baked-in base weights
+  bool federated = 7;               // federated round: stash last.pt as
+                                    // result_weights_id and skip the model upload
+}
+
+message TrainingJob {
+  string job_id = 1;
+  string status = 2;                // idle/preparing/training/uploading/done/failed/canceled
+  uint32 progress = 3;              // 0-100
+  uint32 epoch = 4;
+  uint32 total_epochs = 5;
+  string message = 6;
+  string error = 7;
+  string model_name = 8;
+  string conversion_job_id = 9;     // inference-service conversion job (when done)
+  string metrics_json = 10;         // last-epoch ultralytics metrics, relayed verbatim
+  double started_at = 11;
+  string dataset_id = 12;           // dataset the job trains on
+  string result_weights_id = 13;    // federated job, status "done": the stashed
+                                    // last.pt, ready for DownloadWeights
+  bool federated = 14;              // job runs as a federated round
+}
+
+// ── Federated training (hub-orchestrated FedAvg) ─────────────────────────────
+// The hub shards one dataset across the paired devices, trains each shard
+// locally per round from shared weights, and averages the resulting
+// checkpoints on one device. Devices never talk to each other — the hub
+// ferries weights as opaque .pt blobs. Blobs are stashed under
+// {DATA_DIR}/weights/{weights_id}.pt and pruned after a TTL.
+
+// Deterministic IID shard of a dataset: images are shuffled with `seed` and
+// assigned round-robin, so the N shards (same seed) are disjoint, cover the
+// full dataset and differ in size by at most one image. The exported ZIP has
+// the same YOLO layout as ExportDataset, always carrying the full class
+// list so per-shard checkpoints stay averageable.
+message ShardExportRequest {
+  string dataset_id = 1;
+  uint32 num_shards = 2;            // total shards (2..16)
+  uint32 shard_index = 3;           // 0-based, < num_shards
+  string seed = 4;                  // shared shuffle seed (same for all shards)
+}
+
+// Checkpoint upload into the weights stash. First message must be `meta`;
+// the rest are 1MB `chunk`s of the .pt file (UploadDataset pattern).
+message WeightsUploadMeta { string name = 1; }  // diagnostic label only
+message WeightsChunk {
+  oneof payload {
+    WeightsUploadMeta meta = 1;
+    bytes chunk = 2;
+  }
+}
+message WeightsUploadResult {
+  bool success = 1;
+  string message = 2;               // user-facing validation error on failure
+  string weights_id = 3;
+  uint64 size = 4;                  // stored bytes
+}
+message WeightsId { string weights_id = 1; }
+message WeightsDownloadChunk { bytes chunk = 1; }
+
+// Average N stashed checkpoints (FedAvg): float tensors of the model (and
+// ema) state dicts are averaged in fp32 and cast back; non-float buffers are
+// kept from the first checkpoint; optimizer state is dropped. Runs in a CPU
+// child process and is synchronous — seconds for a handful of checkpoints.
+message AverageRequest { repeated string weights_ids = 1; }  // at least two
+message AverageResult {
+  bool success = 1;
+  string message = 2;
+  string weights_id = 3;            // freshly stashed averaged checkpoint
+}
+
+// ── Events (relayed by the gateway onto its unified SSE bus) ─────────────────
+
+message Event {
+  uint64 version = 1;
+  string type = 2;
+  double timestamp = 3;
+  string source = 4;
+  repeated string keys = 5;
+  string data = 6;                  // JSON-encoded payload
+}
+
+service TrainingControl {
+  // Dataset registry
+  rpc ListDatasets(Empty) returns (DatasetList);
+  rpc CreateDataset(DatasetName) returns (DatasetMeta);
+  rpc RenameDataset(DatasetRename) returns (DatasetMeta);
+  rpc DeleteDataset(DatasetId) returns (Result);     // rejected while the dataset trains
+  rpc SetDatasetCover(DatasetCover) returns (Result);
+  rpc UploadDataset(stream DatasetUploadChunk) returns (DatasetUploadResult);
+  rpc ExportDataset(DatasetId) returns (stream DatasetExportChunk);
+
+  // Dataset / capture
+  rpc GetDataset(DatasetId) returns (DatasetInfo);
+  rpc CaptureImage(DatasetId) returns (ImageInfo);
+  rpc AddDatasetImage(LabeledImageUpload) returns (ImageInfo);
+  rpc ListImages(DatasetId) returns (ImageList);
+  rpc GetImage(ImageId) returns (ImageBlob);
+  rpc DeleteImage(ImageId) returns (Result);
+  rpc ReplicateImage(ReplicateRequest) returns (Result);
+
+  // Labels
+  rpc GetLabels(ImageId) returns (Labels);
+  rpc SetLabels(Labels) returns (Result);
+
+  // Classes
+  rpc GetClasses(DatasetId) returns (ClassList);
+  rpc AddClass(ClassName) returns (ClassList);
+  rpc RenameClass(ClassEdit) returns (ClassList);
+  rpc RemoveClass(ClassIndex) returns (ClassList);  // drops that class's boxes, reindexes the rest
+
+  // SAM-assisted labeling
+  rpc GetSamStatus(Empty) returns (SamStatus);
+  rpc LoadSam(Empty) returns (Result);
+  rpc UnloadSam(Empty) returns (Result);
+  rpc SamSegment(SamRequest) returns (SamResult);
+
+  // Training
+  rpc StartTraining(TrainRequest) returns (TrainingJob);
+  rpc GetTraining(Empty) returns (TrainingJob);
+  rpc CancelTraining(Empty) returns (Result);     // hard stop; model discarded
+  rpc FinishTraining(Empty) returns (Result);     // graceful early stop; keeps best.pt
+
+  // Federated training (hub-orchestrated FedAvg)
+  rpc ExportDatasetShard(ShardExportRequest) returns (stream DatasetExportChunk);
+  rpc UploadWeights(stream WeightsChunk) returns (WeightsUploadResult);
+  rpc DownloadWeights(WeightsId) returns (stream WeightsDownloadChunk);
+  rpc AverageWeights(AverageRequest) returns (AverageResult);
+  rpc DeleteWeights(WeightsId) returns (Result);
+
+  // Telemetry
+  rpc StreamEvents(Empty) returns (stream Event);
+}

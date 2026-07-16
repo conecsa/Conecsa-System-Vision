@@ -1,0 +1,85 @@
+<script type="text/javascript">
+  RED.nodes.registerType("start-stop", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      action: {
+        value: "toggle",
+        validate: RED.validators.regex(/^(start|stop|toggle|payload)$/),
+      },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-power-off",
+    label: function () {
+      return this.name || "start/stop";
+    },
+    paletteLabel: "start/stop",
+  });
+</script>
+
+<script type="text/html" data-template-name="start-stop">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-action"><i class="fa fa-cog"></i> Action</label>
+    <select id="node-input-action">
+      <option value="toggle">Toggle (auto)</option>
+      <option value="start">Start</option>
+      <option value="stop">Stop</option>
+      <option value="payload">Payload</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="start-stop">
+  <p>
+    Starts or stops object detection on the inference service.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>action <span class="property-type">string</span></dt>
+    <dd>
+      <code>start</code> — start detection.<br />
+      <code>stop</code> — stop detection.<br />
+      <code>toggle</code> — auto-toggle based on current state.<br />
+      <code>payload</code> — use <code>msg.payload</code> (<code>true</code>=start, <code>false</code>=stop).
+    </dd>
+  </dl>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">action <span class="property-type">string</span></dt>
+    <dd>Override the configured action.</dd>
+    <dt class="optional">payload <span class="property-type">boolean</span></dt>
+    <dd>For <code>payload</code> mode: <code>true</code> starts, <code>false</code> stops.</dd>
+  </dl>
+  <h3>Output</h3>
+  <p>
+    Emits <code>{ payload: { is_running: boolean } }</code> every time
+    the detection state changes on the inference service, no matter
+    which client triggered the change (this node, the web UI, another
+    flow, curl). The initial state at flow start is NOT emitted — only
+    real transitions. Input-driven start/stop calls do not emit on
+    their own; they only emit indirectly via the state stream when the
+    POST actually flips <code>is_running</code> (a no-op POST produces
+    no message).
+  </p>
+  <dl class="message-properties">
+    <dt>payload <span class="property-type">object</span></dt>
+    <dd><code>{ is_running: true|false }</code></dd>
+  </dl>
+</script>

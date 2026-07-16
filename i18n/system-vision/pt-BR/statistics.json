@@ -1,0 +1,6 @@
+{
+  "title": "Estatísticas de Desempenho",
+  "inference_time": "Tempo de Inferência",
+  "detections": "Detecções",
+  "frames_with_detections": "Quadros c/ Detecções"
+}

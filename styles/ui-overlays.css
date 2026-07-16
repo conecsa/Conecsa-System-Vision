@@ -1,0 +1,321 @@
+/* Stream-stage overlays, tool panels, thumbs, modals. */
+
+@layer components {
+  .ui-tool-panel {
+    background: rgba(0, 0, 0, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0.375rem;
+    box-shadow: var(--shadow-panel);
+    color: #fff;
+  }
+
+  /* The live-video stage: positioning ancestor for the absolute overlays AND a
+     query container so the overlay panels can react to the stage's own rendered
+     (post-scale) width, independent of the viewport. */
+  .stream-stage {
+    container-type: inline-size;
+    container-name: stream;
+  }
+
+  /* Stream overlay panels (image adjustments, stereo alignment). Default: float
+     in the top-right of the stage. The width comes from the element's own
+     `w-72`/`w-64` utility class. */
+  .stream-drawer {
+    position: absolute;
+    top: 3.5rem;
+    right: 0.5rem;
+    max-height: 80%;
+    overflow-y: auto;
+  }
+
+  /* On a narrow stage the floating panel would cover or exceed the video, so
+     dock it as a full-height right-edge drawer constrained to the stage width
+     and scrolling internally. */
+  @container stream (max-width: 34rem) {
+    .stream-drawer {
+      top: 0;
+      bottom: 0;
+      right: 0;
+      width: min(20rem, 85cqw);
+      max-height: none;
+      height: 100%;
+      border-radius: 0;
+      border-left: 1px solid rgba(255, 255, 255, 0.12);
+      box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+    }
+  }
+
+  .ui-tool-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    color: rgba(255, 255, 255, 0.9);
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .ui-tool-button:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .ui-tool-button-success {
+    color: var(--state-success-text);
+  }
+
+  .ui-tool-button-danger {
+    color: var(--state-danger-text);
+  }
+
+  .ui-tool-divider {
+    color: rgba(255, 255, 255, 0.4);
+    padding-inline: 0.25rem;
+  }
+
+  .ui-overlay-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.375rem;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    box-shadow: var(--shadow-control);
+    transition: background-color 150ms ease;
+  }
+
+  .ui-overlay-toggle:hover {
+    background: rgba(0, 0, 0, 0.8);
+  }
+
+  .ui-overlay-toggle-active {
+    background: var(--accent-cyan);
+  }
+
+  .ui-overlay-label {
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1.1;
+    text-transform: uppercase;
+    letter-spacing: 0;
+  }
+
+  .ui-overlay-value {
+    color: #fff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.75rem;
+   }
+
+  .ui-overlay-input {
+    width: 100%;
+    border-radius: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    padding: 0.25rem 0.5rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 0.75rem;
+  }
+
+  .ui-segmented {
+    display: flex;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 0.25rem;
+  }
+
+  .ui-segmented-button {
+    flex: 1 1 0;
+    padding: 0.25rem 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 650;
+    transition: background-color 150ms ease;
+  }
+
+  .ui-segmented-button + .ui-segmented-button {
+    border-left: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .ui-segmented-button:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .ui-segmented-button-active {
+    background: var(--accent-cyan);
+  }
+
+  .ui-rgb-label {
+    width: 1rem;
+    font-size: 0.75rem;
+    font-weight: 650;
+  }
+
+  .ui-rgb-label-r {
+    color: var(--state-danger-text);
+  }
+
+  .ui-rgb-label-g {
+    color: var(--state-success-text);
+  }
+
+  .ui-rgb-label-b {
+    color: var(--state-info-text);
+  }
+
+  .ui-area-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    font-size: 0.75rem;
+    box-shadow: var(--shadow-control);
+  }
+
+  .ui-area-chip:hover {
+    background: rgba(0, 0, 0, 0.8);
+  }
+
+  .ui-area-chip-active {
+    background: var(--state-warning-bg);
+    color: #fff;
+    border: 1px solid var(--state-warning-border);
+  }
+
+  .ui-area-chip-delete {
+    color: var(--state-danger-text);
+    transition: color 150ms ease;
+  }
+
+  .ui-area-chip-delete:hover {
+    color: #fff;
+  }
+
+  .ui-thumb {
+    position: relative;
+    overflow: hidden;
+    border: 2px solid transparent;
+    border-radius: 0.25rem;
+    cursor: pointer;
+  }
+
+  .ui-thumb:hover {
+    border-color: var(--border-strong);
+  }
+
+  .ui-thumb-selected {
+    border-color: var(--accent-cyan);
+  }
+
+  .ui-thumb-delete {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    opacity: 0;
+    transition:
+      opacity 150ms ease,
+      background-color 150ms ease;
+  }
+
+  .ui-thumb:hover .ui-thumb-delete {
+    opacity: 1;
+  }
+
+  .ui-thumb-delete:hover {
+    background: var(--accent-red);
+  }
+
+  /* Hover action cluster on a thumb/card (several buttons in one corner —
+     unlike .ui-thumb-delete, the buttons flow inside the cluster). */
+  .ui-thumb-actions {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    display: flex;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .ui-thumb:hover .ui-thumb-actions {
+    opacity: 1;
+  }
+
+  .ui-thumb-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    transition: background-color 150ms ease;
+  }
+
+  .ui-thumb-action:hover {
+    background: var(--accent-cyan);
+  }
+
+  .ui-thumb-action-danger:hover {
+    background: var(--accent-red);
+  }
+
+  /* Small solid dot marking a replicated image — gallery thumbnails only,
+     never the label editor. Ring keeps it visible over light images. */
+  .ui-thumb-replica-dot {
+    width: 0.625rem;
+    height: 0.625rem;
+    border-radius: 9999px;
+    background: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45);
+  }
+
+  /* ── Modal (backdrop + ui-card content) ─────────────────────────────────── */
+
+  .ui-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .ui-modal {
+    width: 100%;
+    max-width: 28rem;
+    margin-inline: 1rem;
+  }
+
+  .ui-modal-sm {
+    max-width: 24rem;
+  }
+
+  .ui-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+  }
+  .ui-overlay-panel {
+    background: var(--surface-overlay);
+    color: var(--text-strong);
+    border-radius: 0.5rem;
+    backdrop-filter: blur(8px);
+  }
+}

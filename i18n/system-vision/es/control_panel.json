@@ -1,0 +1,18 @@
+{
+  "title": "Panel de Control",
+  "start_detection": "Iniciar Detección",
+  "stop_detection": "Detener Detección",
+  "converting_model": "Convirtiendo modelo…",
+  "wait_conversion": "Espere a que termine la conversión del modelo",
+  "camera_disconnected": "Cámara no conectada",
+  "detection_started": "Detección iniciada",
+  "detection_stopped": "Detección detenida",
+  "failed_to_start": "Error al iniciar: {{ err }}",
+  "failed_to_stop": "Error al detener: {{ err }}",
+  "status": "Estado",
+  "running": "En ejecución",
+  "stopped": "Detenido",
+  "model": "Modelo",
+  "hardware_acceleration": "Aceleración de Hardware",
+  "disabled": "Desactivada"
+}

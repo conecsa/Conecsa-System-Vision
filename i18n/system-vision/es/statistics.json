@@ -1,0 +1,6 @@
+{
+  "title": "Estadísticas de Rendimiento",
+  "inference_time": "Tiempo de Inferencia",
+  "detections": "Detecciones",
+  "frames_with_detections": "Fotogramas c/ Detecciones"
+}

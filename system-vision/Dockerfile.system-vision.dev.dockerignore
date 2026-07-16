@@ -1,0 +1,18 @@
+# Per-Dockerfile ignore (BuildKit) for Dockerfile.system-vision.dev — takes
+# precedence over the root .dockerignore. Allowlist: only what the build COPYs.
+**
+!Cargo.toml
+!Cargo.lock
+!system-vision/
+!system-vision/**
+!styles/
+!styles/**
+!proto/
+!proto/**
+!i18n/
+!i18n/**
+
+# Host build artifacts (trunk/tailwind regenerate these inside the image)
+system-vision/target
+system-vision/dist
+system-vision/styles.css

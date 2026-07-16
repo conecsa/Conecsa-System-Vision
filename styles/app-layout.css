@@ -1,0 +1,231 @@
+/* Dashboard layout: main scroll region, grid, panels, page navigation. */
+
+@layer components {
+  /* Mobile-first: `.app-main` is the scroll region (header stays pinned above
+     it). On small screens the dashboard stacks in one column and the content
+     scrolls naturally. The desktop band below switches it to a fill-the-
+     viewport layout with per-panel internal scroll. */
+  .app-main {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    padding: 0.75rem;
+    overflow-y: auto;
+  }
+
+  .app-dashboard-grid {
+    width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    align-content: start;
+  }
+
+  .app-status-row {
+    grid-column: 1 / -1;
+  }
+
+  .app-primary-pane,
+  .app-side-panel,
+  .app-status-row {
+    min-width: 0;
+  }
+
+  .app-primary-pane {
+    /* Keeps the video a usable size on phones; the desktop band lets it fill
+       its grid cell instead. */
+    min-height: clamp(36rem, 66vh, 52rem);
+    overflow: visible;
+  }
+
+  .app-side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .app-side-fill {
+    /* On small screens give the statistics real room (they stack and scroll
+       with the page). */
+    min-height: 18rem;
+  }
+
+  /* ── Tablet: two columns, video spans the full width above the panels ─────── */
+  @media (min-width: 768px) {
+    .app-main {
+      padding: 1rem;
+    }
+
+    .app-dashboard-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem;
+    }
+
+    .app-side-panel {
+      gap: 1rem;
+    }
+
+    .app-primary-pane {
+      grid-column: 1 / -1;
+      min-height: clamp(44rem, 72vh, 58rem);
+    }
+
+    .app-status-row {
+      grid-column: 1 / -1;
+    }
+  }
+
+  /* ── Desktop: three columns that fill the viewport; no page scroll, panels
+        scroll internally so nothing overlaps. ─────────────────────────────── */
+  @media (min-width: 1280px) {
+    .app-main {
+      padding: 1rem 1.25rem 1.25rem;
+      /* Scroll vertically when the dashboard is taller than the viewport
+         (e.g. 1280×768); `safe center` keeps it vertically centred while it
+         fits but anchors to the top so the start stays reachable once it
+         overflows. */
+      overflow-y: auto;
+      display: flex;
+      align-items: safe center;
+    }
+
+    .app-dashboard-grid {
+      width: 100%;
+      /* Video pane ≈ 55% of the dashboard width; the two side panels share the
+         remaining 45% (22.5% each). */
+      grid-template-columns: minmax(0, 55fr) minmax(0, 22.5fr) minmax(0, 22.5fr);
+      /* Main row sized to a capped, responsive height; status row is auto. The
+         grid grows to its content so `.app-main` can scroll it (no clipping). */
+      grid-template-rows: clamp(52rem, 70vh, 55rem) auto;
+      align-items: stretch;
+    }
+
+    .app-primary-pane {
+      grid-column: auto;
+      /* Floor + cap; kept in sync with the grid row's clamp bounds so the pane
+         never under/overflows its track. */
+      min-height: 52rem;
+      max-height: 55rem;
+    }
+
+    .app-side-panel {
+      min-height: 0;
+      overflow: hidden;
+      /* Match .app-primary-pane so both columns fill the same grid-row height
+         (the base `max-height: 600px` would otherwise cap the side panel
+         shorter than the video). */
+      max-height: 55rem;
+    }
+
+    .app-side-fill {
+      flex: 1 1 0;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    /* Direct card children of a side panel scroll internally within their
+       filled cell instead of spilling over neighbours. */
+    .app-side-panel > .ui-card {
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+
+  .app-panel {
+    background: var(--surface-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    box-shadow: var(--shadow-panel);
+  }
+  .app-flow-panel {
+    height: 100%;
+    min-height: 24rem;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .app-flow-header {
+    padding: 1rem 1.25rem 0;
+    flex-shrink: 0;
+  }
+
+  .app-flow-frame {
+    flex: 1;
+    width: 100%;
+    min-height: 0;
+    border: 0;
+    background: #0f1720;
+  }
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 0.75rem;
+  }
+
+  .panel-header-spaced {
+    margin-bottom: 1.25rem;
+  }
+
+  .panel-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    color: var(--text-strong);
+    font-size: 1rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    line-height: 1.25;
+  }
+
+  .panel-title-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--text-muted);
+  }
+
+  .nav-button {
+    display: flex;
+    min-width: 3.25rem;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.5rem;
+    color: var(--text-muted);
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease;
+    cursor: pointer;
+  }
+
+  .nav-button:hover {
+    color: var(--text-strong);
+    background: var(--surface-control-hover);
+  }
+
+  .nav-button-active {
+    color: var(--accent-cyan);
+    background: rgba(22, 163, 182, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(22, 163, 182, 0.24);
+  }
+
+  .nav-button-icon {
+    width: 1rem;
+    height: 1.25rem;
+  }
+
+  .nav-button-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.1;
+    letter-spacing: 0;
+  }
+}

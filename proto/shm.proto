@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package conecsa;
+
+// Control structures exchanged through the camera shared-memory segment
+// (produced by the Rust webcam-server, consumed by the inference-service and
+// api-gateway). The per-frame pixel data is NOT described here — it lives in
+// the raw frame region of the SHM ring; these messages are the small
+// config/health structs written into the segment's header so consumers can
+// drive the camera and read its liveness without any HTTP to the webcam-server.
+
+// Camera settings written back into the SHM header by a consumer
+// (inference-service) and applied by the webcam-server on its next capture
+// loop — no container restart required.
+message CameraConfig {
+  uint32 camera_index = 1;   // V4L2 device index (/dev/videoN)
+  uint32 width = 2;          // capture width in pixels
+  uint32 height = 3;         // capture height in pixels
+  uint32 framerate = 4;      // target frames per second
+  bool auto_exposure = 5;    // true = camera auto-exposure, false = manual
+  uint32 exposure_time = 6;  // manual exposure time (V4L2 units; used when auto_exposure=false)
+  uint32 rgb_red = 7;        // software red gain (0-255, 128 = neutral)
+  uint32 rgb_green = 8;      // software green gain (0-255, 128 = neutral)
+  uint32 rgb_blue = 9;       // software blue gain (0-255, 128 = neutral)
+  uint32 gamma = 10;         // software gamma correction
+  uint32 gain = 11;          // software luminance gain
+}
+
+// Liveness/status published by the webcam-server into the SHM header so
+// consumers can tell a live camera from an absent one. "no_camera" is the
+// signal the inference-service gates detection on: with no camera the
+// webcam-server publishes no frames at all.
+message HealthStatus {
+  string status = 1;  // "starting" | "capturing" | "no_camera"
+}

@@ -1,0 +1,87 @@
+<script type="text/javascript">
+  RED.nodes.registerType("detection-models", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      action: { value: "list" },
+      modelName: { value: "" },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-cube",
+    label: function () {
+      return this.name || "detection models";
+    },
+    paletteLabel: "detection models",
+    oneditprepare: function () {
+      function toggleModelName() {
+        var action = $("#node-input-action").val();
+        if (action === "select") {
+          $("#row-modelName").show();
+        } else {
+          $("#row-modelName").hide();
+        }
+      }
+      $("#node-input-action").on("change", toggleModelName);
+      toggleModelName();
+    },
+  });
+</script>
+
+<script type="text/html" data-template-name="detection-models">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-action"><i class="fa fa-cog"></i> Action</label>
+    <select id="node-input-action">
+      <option value="list">List models</option>
+      <option value="select">Select model</option>
+    </select>
+  </div>
+  <div class="form-row" id="row-modelName">
+    <label for="node-input-modelName"><i class="fa fa-cube"></i> Model name</label>
+    <input type="text" id="node-input-modelName" placeholder="yolov8n.engine" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="detection-models">
+  <p>
+    Lists available detection models or selects a model to use.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>action <span class="property-type">string</span></dt>
+    <dd><code>list</code> — list all available models.<br /><code>select</code> — select a model by name.</dd>
+    <dt>modelName <span class="property-type">string</span></dt>
+    <dd>Model filename to select (only for <code>select</code> action).</dd>
+  </dl>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">action <span class="property-type">string</span></dt>
+    <dd>Override the configured action.</dd>
+    <dt class="optional">modelName <span class="property-type">string</span></dt>
+    <dd>Override the configured model name.</dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload <span class="property-type">object</span></dt>
+    <dd>
+      For <code>list</code>: <code>{ models: [{ name, size, modified, is_active }] }</code>.<br />
+      For <code>select</code>: response from the inference service.
+    </dd>
+  </dl>
+</script>

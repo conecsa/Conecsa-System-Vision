@@ -1,0 +1,33 @@
+{
+  "name": "node-red-contrib-conecsa-system-vision",
+  "version": "1.0.0",
+  "description": "Node-RED nodes for the Conecsa object detection system",
+  "keywords": ["node-red", "conecsa", "detection", "vision"],
+  "license": "MIT",
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "node-red": "^4.1.7",
+    "node-red-node-test-helper": "^0.3.4"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/test/**/*_spec.js"]
+  },
+  "node-red": {
+    "version": ">=4.1.7",
+    "nodes": {
+      "camera-trigger": "nodes/trigger/trigger.js",
+      "stats": "nodes/stats/stats.js",
+      "detection": "nodes/detection/detection.js",
+      "threshold": "nodes/threshold/threshold.js",
+      "detection-models": "nodes/detection-models/detection-models.js",
+      "start-stop": "nodes/start-stop/start-stop.js",
+      "system-status": "nodes/system-status/system-status.js",
+      "reset-stats": "nodes/reset-stats/reset-stats.js",
+      "gpio": "nodes/gpio/gpio.js"
+    }
+  }
+}

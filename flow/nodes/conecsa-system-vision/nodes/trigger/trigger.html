@@ -1,0 +1,76 @@
+<script type="text/javascript">
+  RED.nodes.registerType("camera-trigger", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      action: {
+        value: "toggle",
+        validate: RED.validators.regex(/^(enable|disable|toggle|payload)$/),
+      },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-bolt",
+    label: function () {
+      return this.name || "camera-trigger";
+    },
+    paletteLabel: "camera-trigger",
+  });
+</script>
+
+<script type="text/html" data-template-name="camera-trigger">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-action"><i class="fa fa-cog"></i> Action</label>
+    <select id="node-input-action">
+      <option value="toggle">Toggle (auto)</option>
+      <option value="enable">Enable</option>
+      <option value="disable">Disable</option>
+      <option value="payload">Payload</option>
+    </select>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="camera-trigger">
+  <p>
+    Controls the inference trigger. When the trigger is
+    <b>disabled</b>, the processed video stream is frozen at the last frame;
+    when <b>enabled</b>, frames are processed normally.
+  </p>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">action <span class="property-type">string</span></dt>
+    <dd>
+      Override the configured action: <code>enable</code>,
+      <code>disable</code>, or <code>toggle</code>.
+    </dd>
+    <dt class="optional">payload <span class="property-type">boolean</span></dt>
+    <dd>
+      When action is <code>payload</code>, the node uses <code>msg.payload</code>
+      directly: <code>true</code> enables, <code>false</code> disables.
+    </dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload <span class="property-type">object</span></dt>
+    <dd>
+      Response from the inference service, e.g.
+      <code>{ trigger_enabled: true }</code>.
+    </dd>
+  </dl>
+</script>

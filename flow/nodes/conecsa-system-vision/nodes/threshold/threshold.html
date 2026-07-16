@@ -1,0 +1,75 @@
+<script type="text/javascript">
+  RED.nodes.registerType("threshold", {
+    category: "Conecsa",
+    color: "#1a73e8",
+    defaults: {
+      name: { value: "" },
+      inferenceUrl: { value: "" },
+      thresholdType: { value: "confidence" },
+      value: { value: "0.5", validate: RED.validators.number() },
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "font-awesome/fa-sliders",
+    label: function () {
+      return this.name || "threshold";
+    },
+    paletteLabel: "threshold",
+  });
+</script>
+
+<script type="text/html" data-template-name="threshold">
+  <div class="form-row">
+    <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"
+      ><i class="fa fa-server"></i> Inference URL</label
+    >
+    <input
+      type="text"
+      id="node-input-inferenceUrl"
+      placeholder="http://api-gateway:5000"
+    />
+  </div>
+  <div class="form-row">
+    <label for="node-input-thresholdType"><i class="fa fa-cog"></i> Type</label>
+    <select id="node-input-thresholdType">
+      <option value="confidence">Confidence</option>
+      <option value="overlay">Overlay</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-value"><i class="fa fa-percent"></i> Value (0-1)</label>
+    <input type="text" id="node-input-value" placeholder="0.5" />
+  </div>
+</script>
+
+<script type="text/html" data-help-name="threshold">
+  <p>
+    Sets the confidence or overlay threshold on the inference service.
+  </p>
+  <h3>Configuration</h3>
+  <dl class="message-properties">
+    <dt>thresholdType <span class="property-type">string</span></dt>
+    <dd><code>confidence</code> or <code>overlay</code>.</dd>
+    <dt>value <span class="property-type">number</span></dt>
+    <dd>Threshold value between 0.0 and 1.0.</dd>
+  </dl>
+  <h3>Input</h3>
+  <dl class="message-properties">
+    <dt class="optional">payload <span class="property-type">number</span></dt>
+    <dd>Overrides the configured value.</dd>
+    <dt class="optional">thresholdType <span class="property-type">string</span></dt>
+    <dd>Overrides the configured type.</dd>
+  </dl>
+  <h3>Output</h3>
+  <dl class="message-properties">
+    <dt>payload <span class="property-type">object</span></dt>
+    <dd>
+      Response from the inference service, e.g.
+      <code>{ success: true, threshold: 0.5 }</code>.
+    </dd>
+  </dl>
+</script>

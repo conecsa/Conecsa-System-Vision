@@ -1,0 +1,100 @@
+# ============================================================================
+# DEV base image for the Conecsa stack on x86_64 + NVIDIA GPU.
+#
+# Mirrors os/Dockerfile.os (the Jetson/aarch64 production base) but for local
+# development on an x86_64 workstation with an NVIDIA GPU. The differences:
+#
+#   - GPU wheels come from PyPI (torch / torchvision / onnxruntime-gpu /
+#     tensorrt-cu12 / pycuda) instead of the aarch64 jetson-ai-lab index.
+#   - No hardware-management agent layer (wpa_supplicant / jeepney / Jetson.GPIO)
+#     — the `os` service runs only as the shared base + named-volume owner in
+#     docker-compose.dev.yml; the Wi-Fi/GPIO agent is Jetson-only.
+#   - No Tegra LD_LIBRARY_PATH; the standard CUDA paths are enough off-device.
+#
+# Used as `FROM base` by the *.dev service images (the dev compose maps
+# base=service:os via additional_contexts, exactly like production).
+# ============================================================================
+
+FROM nvidia/cuda:12.6.0-devel-ubuntu22.04
+
+WORKDIR /app
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=America/Sao_Paulo
+
+RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
+        python3.10 \
+        python3.10-dev \
+        python3.10-venv \
+        libgl1 \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+        libgomp1 \
+        libopenblas-dev \
+        build-essential \
+        gcc \
+        g++ \
+        make \
+        wget \
+        curl \
+        ca-certificates \
+        git \
+        libjpeg-dev \
+        libpng-dev \
+        libtiff-dev \
+        libjemalloc2 \
+        libnuma1 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python  python  /usr/bin/python3.10 1 && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 1 && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10 && \
+    python3 -m pip install --no-cache-dir --upgrade pip --root-user-action=ignore
+
+ENV CUDA_HOME=/usr/local/cuda-12.6
+ENV CUDA_PATH=/usr/local/cuda-12.6
+ENV PATH=${CUDA_HOME}/bin:${PATH}
+ENV LD_LIBRARY_PATH=${CUDA_HOME}/lib64:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}
+ENV CUDA_MODULE_LOADING=LAZY
+ENV PYTHONUNBUFFERED=1
+
+# Dependencies follow scripts/init.sh (the local x86_64 dev setup), NOT the
+# Jetson wheels — the deps that actually differ off-device are tensorrt and
+# pycuda. Install order: the shared ML stack from requirements-common.txt, then
+# the x86 GPU stack `tensorrt-cu12` + `pycuda` + `onnx` from PyPI (init.sh's
+# `--gpu` step), then force numpy back to 1.26.4 for the pycuda/tensorrt ABI
+# (exactly the downgrade the requirements-dev.txt note describes for the base).
+#
+# tensorrt-cu12 is PINNED to 10.3.0 — the SAME version as the Jetson base
+# (tensorrt-10.3.0-...aarch64.whl). Newer TensorRT 10.x removed the
+# `NetworkDefinitionCreationFlag.EXPLICIT_BATCH` enum that the engine builder
+# uses (api/runtime_management/_trt_engine_builder.py), so an unpinned install
+# breaks engine conversion with "no attribute 'EXPLICIT_BATCH'". pycuda is
+# pinned to the Jetson's 2024.1 for the same parity.
+#
+# torch is NOT installed explicitly: it arrives transitively via ultralytics as
+# a CPU build on x86 — which is fine, since TensorRT + pycuda drive the GPU
+# inference path and torch only runs the one-off .pt→.onnx conversion subprocess.
+COPY os-base/requirements-common.txt /app/
+RUN pip install --no-cache-dir --root-user-action=ignore \
+        -r /app/requirements-common.txt && \
+    pip install --no-cache-dir --root-user-action=ignore \
+        tensorrt-cu12==10.3.0 pycuda==2024.1 onnx==1.22.0 && \
+    pip install --no-cache-dir --force-reinstall --root-user-action=ignore \
+        numpy==1.26.4
+
+# Shared data directories owned by this container; mounted as named volumes
+# by the services that consume them.
+RUN mkdir -p /data/models /data/runs /data/training
+
+# Shared SHM ring helpers — importable as `conecsa_shm` by every FROM-base
+# service. Kept on the default import path for parity with production; the dev
+# services also see the live os-base/conecsa_shm via the bind-mounted /workspace.
+COPY os-base/conecsa_shm/ /usr/local/lib/python3.10/dist-packages/conecsa_shm/
+
+# Keep the container alive so it stays the canonical owner of the volumes when
+# used as a plain base image (the dev compose does not run the hardware agent).
+CMD ["tail", "-f", "/dev/null"]

@@ -1,0 +1,6 @@
+# Compiled proto stubs (generated at image build by grpc_tools.protoc)
+gateway/proto/*_pb2.py
+gateway/proto/*_pb2.pyi
+gateway/proto/*_pb2_grpc.py
+__pycache__/
+*.py[cod]
