@@ -37,9 +37,14 @@ publish_identity() {
     ' "$AVAHI_SERVICE" > "$tmp" || { rm -f "$tmp"; return 0; }
     mv "$tmp" "$AVAHI_SERVICE"
 
-    # A no-op at boot (this unit is ordered before avahi-daemon); it matters when
-    # the script is rerun by hand after a hostname change.
-    systemctl reload avahi-daemon 2>/dev/null || true
+    # This unit is ordered before avahi-daemon at boot.  Do not synchronously
+    # reload a service whose pending start job is waiting for this oneshot to
+    # finish: that creates an ordering deadlock and prevents networkd/DHCP from
+    # starting.  A reload is only needed when this script is rerun while Avahi
+    # is already active; --no-block also keeps the helper out of Avahi's job.
+    if systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+        systemctl reload --no-block avahi-daemon 2>/dev/null || true
+    fi
 }
 
 CUR="$(hostname 2>/dev/null || echo "")"
