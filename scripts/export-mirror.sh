@@ -90,8 +90,8 @@ EXCLUDES=(
 # docs/services/hub-vision.md is intentionally public (prose describing the
 # companion product) and matches none of them.
 FORBIDDEN_PATH_PATTERNS=(
-  '^hub-vision/'
-  '^i18n/hub-vision/'
+  '^hub-vision(/|$)'
+  '^i18n/hub-vision(/|$)'
   'src-tauri'
   'build-hub'
   'hub-kiosk'
@@ -136,11 +136,14 @@ done
 # ── 3. Path gate (hard fail) ───────────────────────────────────────────────────
 VIOLATIONS=""
 for pattern in "${FORBIDDEN_PATH_PATTERNS[@]}"; do
-  VIOLATIONS+="$(cd "$STAGING" && find . -mindepth 1 | sed 's|^\./||' | grep -E "$pattern" || true)"
+  matches="$(cd "$STAGING" && find . -mindepth 1 | sed 's|^\./||' | grep -E "$pattern" || true)"
+  if [[ -n "$matches" ]]; then
+    VIOLATIONS+="${matches}"$'\n'
+  fi
 done
 if [[ -n "$VIOLATIONS" ]]; then
   echo "XX forbidden paths staged — aborting (staging kept for inspection: $STAGING)" >&2
-  echo "$VIOLATIONS" >&2
+  printf '%s' "$VIOLATIONS" >&2
   exit 1
 fi
 
