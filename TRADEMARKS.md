@@ -1,7 +1,7 @@
 # Trademarks
 
-"Conecsa", the Conecsa logo and the product names "Conecsa Object Detection",
-"system-vision" branding assets are trademarks of Conecsa. They are included in
+"Conecsa", the Conecsa logo, the product name "Conecsa Object Detection",
+and the "system-vision" branding assets are trademarks of Conecsa. They are included in
 this repository so that the software builds and runs as shipped.
 
 The open-source license that covers the source code in this repository does
