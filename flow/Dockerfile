@@ -7,7 +7,7 @@ FROM nodered/node-red@sha256:10f40d0a83e7e5852b13d4d472b2006b05b1cca6d55e2f29a55
 RUN npm install --prefix /usr/src/node-red @node-red-contrib-themes/theme-collection@5.0.1
 
 # Copy custom node package
-COPY nodes/conecsa-system-vision /usr/src/node-red/node_modules/node-red-contrib-conecsa-system-vision
+COPY nodes/conecsa-system-vision /usr/src/node-red/node_modules/@conecsa/node-red-contrib-conecsa-system-vision
 
 # Config + initial flow are baked into a seed dir; the entrypoint refreshes the
 # config into the /data volume on every start (so settings.js changes apply on

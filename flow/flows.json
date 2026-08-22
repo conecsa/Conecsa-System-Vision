@@ -93,7 +93,7 @@
   },
   {
     "id": "86e8ea5d6179b80e",
-    "type": "camera-trigger",
+    "type": "conecsa-camera-trigger",
     "z": "f76b146c87826368",
     "name": "Camera Trigger",
     "inferenceUrl": "",
@@ -135,7 +135,7 @@
   },
   {
     "id": "af366ad81bc5b7e0",
-    "type": "stats",
+    "type": "conecsa-stats",
     "z": "f76b146c87826368",
     "name": "Stats",
     "inferenceUrl": "",
@@ -178,7 +178,7 @@
   },
   {
     "id": "cb722fde4e2e6f3e",
-    "type": "detection",
+    "type": "conecsa-detection",
     "z": "f76b146c87826368",
     "name": "Detection",
     "inferenceUrl": "",
@@ -241,7 +241,7 @@
   },
   {
     "id": "1fab41650c8162f9",
-    "type": "start-stop",
+    "type": "conecsa-start-stop",
     "z": "f76b146c87826368",
     "name": "Start/Stop",
     "inferenceUrl": "",
@@ -308,7 +308,7 @@
   },
   {
     "id": "90dc5cbeddfadd48",
-    "type": "threshold",
+    "type": "conecsa-threshold",
     "z": "f76b146c87826368",
     "name": "Threshold",
     "inferenceUrl": "",
@@ -370,7 +370,7 @@
   },
   {
     "id": "2bcd89e2b8738683",
-    "type": "detection-models",
+    "type": "conecsa-detection-models",
     "z": "f76b146c87826368",
     "name": "Models",
     "inferenceUrl": "",
@@ -432,7 +432,7 @@
   },
   {
     "id": "73bdca11961fe04c",
-    "type": "system-status",
+    "type": "conecsa-system-status",
     "z": "f76b146c87826368",
     "name": "System Status",
     "inferenceUrl": "",
@@ -519,7 +519,7 @@
   },
   {
     "id": "84af052a19341f18",
-    "type": "reset-stats",
+    "type": "conecsa-reset-stats",
     "z": "f76b146c87826368",
     "name": "Reset Stats",
     "inferenceUrl": "",
@@ -586,7 +586,7 @@
   },
   {
     "id": "afc8223d0db013df",
-    "type": "threshold",
+    "type": "conecsa-threshold",
     "z": "f76b146c87826368",
     "name": "Threshold",
     "inferenceUrl": "",
@@ -605,7 +605,7 @@
     "type": "global-config",
     "env": [],
     "modules": {
-      "node-red-contrib-conecsa-system-vision": "1.0.0"
+      "@conecsa/node-red-contrib-conecsa-system-vision": "1.1.1"
     }
   }
 ]

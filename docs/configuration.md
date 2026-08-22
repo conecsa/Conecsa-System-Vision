@@ -51,7 +51,7 @@ the code (what applies when the variable is unset); where the production
 | `WAITRESS_THREADS` | `32` | — | Waitress task threads (MJPEG/SSE pin one each) |
 | `STEREO_COMBINE` | `none` | `none` | Stereo combine for the training preview (matches inference-service); fallback only — the live inference config wins when reachable |
 | `STEREO_BLEND_ALPHA` | `0.5` | — | Blend factor for the training preview |
-| `DEVICE_VERSION` | _(empty)_ | `2026.3-LTS` | Device software version, surfaced on `/api/v1/status` + `/api/v1/health` for the hub |
+| `DEVICE_VERSION` | _(empty)_ | `2026.4-LTS` | Device software version, surfaced on `/api/v1/status` + `/api/v1/health` for the hub |
 | `DEVICE_ID` | _(host hostname)_ | — | Device identity used by enrollment, the cert SAN and mDNS |
 | `CONECSA_CERT_DIR` | `/etc/conecsa/certs` | — | Device key/CSR + hub-signed cert/CA (volume shared with the nginx TLS terminator) |
 | `DEVICE_PAIR_TOKEN` | _(unset)_ | `${DEVICE_PAIR_TOKEN:-}` | Optional shared pairing secret; unset = first hub on the trusted LAN to pair wins |

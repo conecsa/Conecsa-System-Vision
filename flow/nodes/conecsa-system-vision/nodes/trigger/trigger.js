@@ -28,7 +28,7 @@ module.exports = function (RED) {
         }
 
         const path = `/api/v1/trigger/${action}`;
-        request(node.inferenceUrl, "POST", path, null, (err, body) => {
+        request(node.target, "POST", path, null, (err, body) => {
           if (err) {
             node.error("Trigger request failed: " + err.message, msg);
             node.status({ fill: "red", shape: "ring", text: "error" });
@@ -45,7 +45,7 @@ module.exports = function (RED) {
         });
       }
 
-      request(node.inferenceUrl, "GET", "/api/v1/trigger/status", null, (err, status) => {
+      request(node.target, "GET", "/api/v1/trigger/status", null, (err, status) => {
         if (err) {
           if (action !== "toggle") {
             applyAction({ trigger_enabled: null });
@@ -60,5 +60,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("camera-trigger", TriggerNode);
+  RED.nodes.registerType("conecsa-camera-trigger", TriggerNode);
 };

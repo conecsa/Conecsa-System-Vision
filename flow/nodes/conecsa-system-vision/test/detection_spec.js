@@ -28,7 +28,7 @@ describe("detection node", () => {
         ),
     });
     const flow = [
-      { id: "n1", type: "detection", inferenceUrl: gw.url, mode: "on-change", includeFrame: false, wires: [["n2"]] },
+      { id: "n1", type: "conecsa-detection", inferenceUrl: gw.url, mode: "on-change", includeFrame: false, wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(detectionNode, flow);
@@ -45,7 +45,7 @@ describe("detection node", () => {
         res.end(JSON.stringify({ total: 1, model: "m", detections: [{ class_name: "cap" }] })),
     });
     const flow = [
-      { id: "n1", type: "detection", inferenceUrl: gw.url, mode: "on-change", deviceId: "cam-7", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-detection", inferenceUrl: gw.url, mode: "on-change", deviceId: "cam-7", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(detectionNode, flow);
@@ -61,7 +61,7 @@ describe("detection node", () => {
         res.end(JSON.stringify({ total: 0, model: "m", detections: [] })),
     });
     const flow = [
-      { id: "n1", type: "detection", inferenceUrl: gw.url, mode: "on-change", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-detection", inferenceUrl: gw.url, mode: "on-change", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(detectionNode, flow);

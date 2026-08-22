@@ -6,7 +6,7 @@
 # resolve the `service` package and hosts future Python tool config.
 [project]
 name = "conecsa-training-service"
-version = "2026.3-LTS"
+version = "2026.4-LTS"
 description = "Dataset management, SAM3-assisted labeling, and YOLO training-job orchestration."
 requires-python = ">=3.10"
 

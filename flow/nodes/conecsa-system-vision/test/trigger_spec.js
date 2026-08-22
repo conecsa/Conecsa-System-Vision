@@ -18,7 +18,7 @@ function routes(triggerEnabled) {
 
 async function loadTrigger(gw, nodeConfig) {
   const flow = [
-    { id: "n1", type: "camera-trigger", inferenceUrl: gw.url, wires: [["n2"]], ...nodeConfig },
+    { id: "n1", type: "conecsa-camera-trigger", inferenceUrl: gw.url, wires: [["n2"]], ...nodeConfig },
     { id: "n2", type: "helper" },
   ];
   await helper.load(triggerNode, flow);
@@ -44,7 +44,7 @@ describe("camera-trigger node", () => {
     gw = await startMockGateway(routes(false));
     const { n1 } = await loadTrigger(gw, {});
     expect(n1).toBeDefined();
-    expect(n1.type).toBe("camera-trigger");
+    expect(n1.type).toBe("conecsa-camera-trigger");
     expect(n1.action).toBe("toggle");
   });
 

@@ -1,6 +1,6 @@
 [package]
 name = "conecsa-system-vision"
-version = "2026.3.0"
+version = "2026.4.0"
 description = "Conecsa Object Detection Application"
 license = "MIT"
 authors = ["Conecsa Automação"]

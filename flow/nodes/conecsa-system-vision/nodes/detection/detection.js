@@ -16,11 +16,12 @@ module.exports = function (RED) {
     node.interval = (parseFloat(config.interval) || 5) * 1000;
     node.includeFrame = config.includeFrame !== false;
 
-    // Optional device identity for the conecsa-hub-vision hub (node config or
-    // DEVICE_ID env). Leave empty to let the hub attribute records to the device
-    // it discovered over mDNS, matched by the request's source IP. Avoid relying
-    // on the container hostname here — it is not the device's host hostname.
-    node.deviceId = (config.deviceId || process.env.DEVICE_ID || "").trim();
+    // Optional device identity tag on the payload (node config, else — in hub
+    // mode — the device this node addresses, else DEVICE_ID env). Leave empty
+    // on a device to let the hub attribute records to the device it discovered
+    // over mDNS, matched by the request's source IP. Avoid relying on the
+    // container hostname here — it is not the device's host hostname.
+    node.deviceId = (config.deviceId || node.device || process.env.DEVICE_ID || "").trim();
 
 
     let timer = null;
@@ -55,7 +56,7 @@ module.exports = function (RED) {
       const includeFrame = node.includeFrame ? "true" : "false";
       const path = `/api/v1/detections/snapshot?include_frame=${includeFrame}`;
 
-      request(node.inferenceUrl, "GET", path, null, (err, body) => {
+      request(node.target, "GET", path, null, (err, body) => {
         if (err) {
           node.status({ fill: "red", shape: "ring", text: "error" });
           node.error("Detection snapshot failed: " + err.message);
@@ -118,5 +119,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("detection", DetectionNode);
+  RED.nodes.registerType("conecsa-detection", DetectionNode);
 };

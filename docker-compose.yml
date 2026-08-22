@@ -267,7 +267,7 @@ services:
       - GATEWAY_PORT=5000
       # Device software version, surfaced on /api/v1/status + /api/v1/health for
       # the conecsa-hub-vision hub to display.
-      - DEVICE_VERSION=2026.3-LTS
+      - DEVICE_VERSION=2026.4-LTS
       # Thread-per-connection: above the worst-case concurrent MJPEG + SSE
       # streams (per web tab: processed video + unified SSE; plus Node-RED).
       - WAITRESS_THREADS=32

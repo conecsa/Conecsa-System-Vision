@@ -21,11 +21,11 @@ describe("threshold node", () => {
       "GET /api/v1/status": (req, res) =>
         res.end(JSON.stringify({ confidence_threshold: 0.5, overlay_threshold: 0.4 })),
     });
-    const flow = [{ id: "n1", type: "threshold", inferenceUrl: gw.url }];
+    const flow = [{ id: "n1", type: "conecsa-threshold", inferenceUrl: gw.url }];
     await helper.load(thresholdNode, flow);
     const n1 = helper.getNode("n1");
     expect(n1).toBeDefined();
-    expect(n1.type).toBe("threshold");
+    expect(n1.type).toBe("conecsa-threshold");
     expect(n1.thresholdType).toBe("confidence");
     expect(n1.value).toBe(0.5);
   });
@@ -40,7 +40,7 @@ describe("threshold node", () => {
       },
     });
     const flow = [
-      { id: "n1", type: "threshold", inferenceUrl: gw.url, thresholdType: "confidence", value: 0.5, wires: [["n2"]] },
+      { id: "n1", type: "conecsa-threshold", inferenceUrl: gw.url, thresholdType: "confidence", value: 0.5, wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(thresholdNode, flow);
@@ -66,7 +66,7 @@ describe("threshold node", () => {
         res.end(JSON.stringify({ threshold: JSON.parse(body).threshold })),
     });
     const flow = [
-      { id: "n1", type: "threshold", inferenceUrl: gw.url, thresholdType: "overlay", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-threshold", inferenceUrl: gw.url, thresholdType: "overlay", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(thresholdNode, flow);

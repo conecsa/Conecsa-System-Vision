@@ -1,9 +1,11 @@
 <script type="text/javascript">
-  RED.nodes.registerType("stats", {
+  RED.nodes.registerType("conecsa-stats", {
     category: "Conecsa",
     color: "#1a73e8",
     defaults: {
       name: { value: "" },
+      hub: { value: "", type: "conecsa-hub", required: false },
+      device: { value: "" },
       inferenceUrl: { value: "" },
       mode: { value: "on-change" },
       interval: { value: "2", validate: RED.validators.number() },
@@ -16,6 +18,7 @@
     },
     paletteLabel: "stats",
     oneditprepare: function () {
+      this._conecsaHub = window.conecsaHubFields ? window.conecsaHubFields(this) : null;
       var node = this;
       function toggleInterval() {
         var mode = $("#node-input-mode").val();
@@ -28,23 +31,29 @@
       $("#node-input-mode").on("change", toggleInterval);
       toggleInterval();
     },
+    oneditsave: function () {
+      if (this._conecsaHub) this._conecsaHub.save();
+    },
   });
 </script>
 
-<script type="text/html" data-template-name="stats">
+<script type="text/html" data-template-name="conecsa-stats">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
     <input type="text" id="node-input-name" placeholder="Name" />
   </div>
   <div class="form-row">
-    <label for="node-input-inferenceUrl"
-      ><i class="fa fa-server"></i> Inference URL</label
-    >
-    <input
-      type="text"
-      id="node-input-inferenceUrl"
-      placeholder="http://api-gateway:5000"
-    />
+    <label for="node-input-hub"><i class="fa fa-sitemap"></i> Hub</label>
+    <input type="text" id="node-input-hub" />
+  </div>
+  <div class="form-row" id="conecsa-device-row">
+    <label for="node-input-device"><i class="fa fa-id-card"></i> Device</label>
+    <select id="node-input-device" style="width:70%"></select>
+    <span id="conecsa-device-hint" style="display:block; margin-left:105px; color:#888; font-size:0.9em"></span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"><i class="fa fa-server"></i> API endpoint</label>
+    <input type="text" id="node-input-inferenceUrl" placeholder="http://api-gateway:5000" />
   </div>
   <div class="form-row">
     <label for="node-input-mode"><i class="fa fa-cog"></i> Mode</label>
@@ -59,11 +68,21 @@
   </div>
 </script>
 
-<script type="text/html" data-help-name="stats">
+<script type="text/html" data-help-name="conecsa-stats">
   <p>
     Subscribes to the <code>/api/v1/stats/stream</code> SSE endpoint and
     forwards performance statistics as Node-RED messages. No input is
     required — the node is autonomous.
+  </p>
+  <h3>Connection</h3>
+  <p>
+    Select a <b>Hub</b> (a <code>conecsa-hub</code> configuration) and a
+    <b>Device</b> to reach the device through the hub's Developer API; the
+    <b>API endpoint</b> then shows the resulting route
+    (<code>https://&lt;hub&gt;:&lt;port&gt;/devices/&lt;device&gt;</code>).
+    Leave the hub empty to call an api-gateway directly: the API endpoint field,
+    then the <code>INFERENCE_URL</code> environment variable, then
+    <code>http://api-gateway:5000</code> (the default inside a device).
   </p>
   <h3>Configuration</h3>
   <dl class="message-properties">

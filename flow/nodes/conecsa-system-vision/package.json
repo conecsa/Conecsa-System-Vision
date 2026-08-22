@@ -1,33 +1,73 @@
 {
-  "name": "node-red-contrib-conecsa-system-vision",
-  "version": "1.0.0",
-  "description": "Node-RED nodes for the Conecsa object detection system",
-  "keywords": ["node-red", "conecsa", "detection", "vision"],
-  "license": "MIT",
+  "name": "@conecsa/node-red-contrib-conecsa-system-vision",
+  "version": "1.1.1",
+  "description": "Node-RED nodes for Conecsa System Vision: control and observe object-detection devices, directly or through a Conecsa hub",
+  "keywords": [
+    "node-red",
+    "node-red-contrib",
+    "conecsa",
+    "system-vision",
+    "hub-vision",
+    "object-detection",
+    "detection",
+    "vision",
+    "jetson"
+  ],
+  "license": "Apache-2.0",
+  "author": "Conecsa",
+  "homepage": "https://github.com/conecsa/Conecsa-System-Vision#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/conecsa/Conecsa-System-Vision.git",
+    "directory": "flow/nodes/conecsa-system-vision"
+  },
+  "bugs": {
+    "url": "https://github.com/conecsa/Conecsa-System-Vision/issues"
+  },
+  "files": [
+    "nodes/",
+    "lib/",
+    "examples/",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "prepublishOnly": "npm test"
   },
   "devDependencies": {
     "jest": "^29.7.0",
     "node-red": "^4.1.7",
-    "node-red-node-test-helper": "^0.3.4"
+    "node-red-node-test-helper": "^0.3.4",
+    "selfsigned": "^5.5.0"
   },
   "jest": {
     "testEnvironment": "node",
-    "testMatch": ["**/test/**/*_spec.js"]
+    "testMatch": [
+      "**/test/**/*_spec.js"
+    ]
   },
   "node-red": {
-    "version": ">=4.1.7",
+    "version": ">=3.1.0",
     "nodes": {
-      "camera-trigger": "nodes/trigger/trigger.js",
-      "stats": "nodes/stats/stats.js",
-      "detection": "nodes/detection/detection.js",
-      "threshold": "nodes/threshold/threshold.js",
-      "detection-models": "nodes/detection-models/detection-models.js",
-      "start-stop": "nodes/start-stop/start-stop.js",
-      "system-status": "nodes/system-status/system-status.js",
-      "reset-stats": "nodes/reset-stats/reset-stats.js",
-      "gpio": "nodes/gpio/gpio.js"
+      "conecsa-hub": "nodes/hub/hub.js",
+      "conecsa-camera-trigger": "nodes/trigger/trigger.js",
+      "conecsa-stats": "nodes/stats/stats.js",
+      "conecsa-detection": "nodes/detection/detection.js",
+      "conecsa-threshold": "nodes/threshold/threshold.js",
+      "conecsa-detection-models": "nodes/detection-models/detection-models.js",
+      "conecsa-start-stop": "nodes/start-stop/start-stop.js",
+      "conecsa-system-status": "nodes/system-status/system-status.js",
+      "conecsa-reset-stats": "nodes/reset-stats/reset-stats.js",
+      "conecsa-gpio": "nodes/gpio/gpio.js"
     }
   }
 }

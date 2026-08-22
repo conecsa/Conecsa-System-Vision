@@ -16,11 +16,11 @@ module.exports = function (RED) {
 
 
     function resetCounter(cb) {
-      request(node.inferenceUrl, "POST", "/api/v1/counter/reset", null, cb);
+      request(node.target, "POST", "/api/v1/counter/reset", null, cb);
     }
 
     function resetStats(cb) {
-      request(node.inferenceUrl, "POST", "/api/v1/stats/reset", null, cb);
+      request(node.target, "POST", "/api/v1/stats/reset", null, cb);
     }
 
     node.on("input", function (msg) {
@@ -57,5 +57,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("reset-stats", ResetStatsNode);
+  RED.nodes.registerType("conecsa-reset-stats", ResetStatsNode);
 };

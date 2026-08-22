@@ -19,7 +19,7 @@ module.exports = function (RED) {
     let timer = null;
 
     function fetchStatus() {
-      request(node.inferenceUrl, "GET", "/api/system/status", null, (err, body) => {
+      request(node.target, "GET", "/api/system/status", null, (err, body) => {
         if (err) {
           node.status({ fill: "red", shape: "ring", text: "error" });
           if (node.mode === "on-demand") {
@@ -55,5 +55,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("system-status", SystemStatusNode);
+  RED.nodes.registerType("conecsa-system-status", SystemStatusNode);
 };

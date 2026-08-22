@@ -1,0 +1,91 @@
+[
+  {
+    "id": "conecsa-hub-example",
+    "type": "conecsa-hub",
+    "name": "my hub",
+    "host": "192.168.1.10",
+    "port": 8443,
+    "verify": true
+  },
+  {
+    "id": "hub-example-tab",
+    "type": "tab",
+    "label": "Conecsa via hub",
+    "disabled": false,
+    "info": "Start/stop detection on a device through a Conecsa hub. Open the conecsa-hub configuration, set the hub's IP, paste the API key from Settings → Developer and upload conecsa-hub-ca.crt, deploy, then pick the device in the start/stop and stats nodes."
+  },
+  {
+    "id": "hub-example-inject",
+    "type": "inject",
+    "z": "hub-example-tab",
+    "name": "toggle",
+    "props": [{ "p": "payload" }],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 80,
+    "wires": [["hub-example-start-stop"]]
+  },
+  {
+    "id": "hub-example-start-stop",
+    "type": "conecsa-start-stop",
+    "z": "hub-example-tab",
+    "name": "",
+    "hub": "conecsa-hub-example",
+    "device": "",
+    "inferenceUrl": "",
+    "action": "toggle",
+    "x": 340,
+    "y": 80,
+    "wires": [["hub-example-debug-state"]]
+  },
+  {
+    "id": "hub-example-debug-state",
+    "type": "debug",
+    "z": "hub-example-tab",
+    "name": "is_running",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 560,
+    "y": 80,
+    "wires": []
+  },
+  {
+    "id": "hub-example-stats",
+    "type": "conecsa-stats",
+    "z": "hub-example-tab",
+    "name": "",
+    "hub": "conecsa-hub-example",
+    "device": "",
+    "inferenceUrl": "",
+    "mode": "on-change",
+    "interval": "2",
+    "x": 340,
+    "y": 160,
+    "wires": [["hub-example-debug-stats"]]
+  },
+  {
+    "id": "hub-example-debug-stats",
+    "type": "debug",
+    "z": "hub-example-tab",
+    "name": "stats",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 560,
+    "y": 160,
+    "wires": []
+  }
+]

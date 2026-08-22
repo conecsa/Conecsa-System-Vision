@@ -8,7 +8,7 @@
 # [build-system] table — the service is run, not pip-installed.
 [project]
 name = "conecsa-inference-service"
-version = "2026.3-LTS"
+version = "2026.4-LTS"
 description = "Headless TensorRT inference service (gRPC control + decode∥infer∥encode pipeline)."
 requires-python = ">=3.10"
 

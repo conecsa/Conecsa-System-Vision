@@ -1,0 +1,215 @@
+<script type="text/javascript">
+  (function () {
+    // ---- Hub config node ---------------------------------------------------
+
+    function setCaStatus(text) {
+      $("#conecsa-hub-ca-status").text(text);
+    }
+
+    function describeCa(pem) {
+      if (!pem) return "no certificate loaded";
+      if (!/-----BEGIN CERTIFICATE-----/.test(pem)) {
+        return "not a PEM certificate";
+      }
+      var count = (pem.match(/-----BEGIN CERTIFICATE-----/g) || []).length;
+      return "loaded (" + count + " certificate" + (count === 1 ? "" : "s") + ", " + pem.length + " bytes)";
+    }
+
+    function clearCa() {
+      $("#node-config-input-ca").val("");
+      $("#node-config-input-cafile").val("");
+      setCaStatus(describeCa(""));
+    }
+
+    RED.nodes.registerType("conecsa-hub", {
+      category: "config",
+      defaults: {
+        name: { value: "" },
+        host: { value: "", required: true },
+        port: { value: 8443, required: true, validate: RED.validators.number() },
+        verify: { value: true },
+      },
+      credentials: {
+        apiKey: { type: "password" },
+        ca: { type: "text" },
+      },
+      label: function () {
+        return this.name || (this.host ? this.host + ":" + this.port : "conecsa-hub");
+      },
+      oneditprepare: function () {
+        // The editor has already filled #node-config-input-ca with the stored
+        // PEM (credential type "text"); apiKey shows as a password placeholder.
+        setCaStatus(describeCa($("#node-config-input-ca").val()));
+
+        $("#node-config-input-cafile").on("change", function () {
+          var file = this.files && this.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function (ev) {
+            var pem = String(ev.target.result || "");
+            $("#node-config-input-ca").val(pem);
+            setCaStatus(file.name + " — " + describeCa(pem));
+          };
+          reader.readAsText(file, "UTF-8");
+        });
+        $("#conecsa-hub-ca-clear").on("click", clearCa);
+      },
+    });
+
+    // ---- Shared helper for the nodes that use a hub -------------------------
+    //
+    // Every Conecsa node's dialog has three connection rows: Hub (config node
+    // select), Device (filled from the hub's device list) and API endpoint
+    // (direct URL, or a read-only preview of the hub route). All node HTML is
+    // loaded into the editor page, so defining the helper once here makes it
+    // available to every oneditprepare.
+    function hubNodeFor(id) {
+      if (!id || id === "_ADD_") return null;
+      return RED.nodes.node(id) || null;
+    }
+
+    function hubRoute(hub, device) {
+      var port = hub.port || 8443;
+      return "https://" + (hub.host || "<hub>") + ":" + port + "/devices/" + (device || "<device>");
+    }
+
+    window.conecsaHubFields = function (node) {
+      var $hub = $("#node-input-hub");
+      var $device = $("#node-input-device");
+      var $hint = $("#conecsa-device-hint");
+      var $url = $("#node-input-inferenceUrl");
+      var directUrl = node.inferenceUrl || "";
+      var current = node.device || "";
+
+      function setOptions(devices, keep) {
+        $device.empty();
+        $device.append($("<option>").val("").text("— select a device —"));
+        var seen = false;
+        devices.forEach(function (d) {
+          var text = d.name ? d.name + " (" + d.id + ")" : d.id;
+          if (d.online === false) text += " · offline";
+          if (d.id === keep) seen = true;
+          $device.append($("<option>").val(d.id).text(text));
+        });
+        if (keep && !seen) {
+          $device.append($("<option>").val(keep).text(keep));
+        }
+        $device.val(keep || "");
+      }
+
+      function refreshPreview() {
+        var hub = hubNodeFor($hub.val());
+        if (hub) {
+          $url.val(hubRoute(hub, $device.val())).prop("readonly", true);
+        } else {
+          $url.val(directUrl).prop("readonly", false);
+        }
+      }
+
+      function loadDevices() {
+        var hubId = $hub.val();
+        var hub = hubNodeFor(hubId);
+        $("#conecsa-device-row").toggle(!!hub);
+        if (!hub) {
+          setOptions([], "");
+          refreshPreview();
+          return;
+        }
+        setOptions([], current);
+        $hint.text("loading devices…");
+        $.getJSON("conecsa-hub/" + encodeURIComponent(hubId) + "/devices")
+          .done(function (devices) {
+            setOptions(devices, current);
+            $hint.text(devices.length ? devices.length + " device(s)" : "no paired devices");
+          })
+          .fail(function (xhr) {
+            var body = xhr.responseJSON || {};
+            if (xhr.status === 404 && body.code === "not_deployed") {
+              $hint.text("deploy the hub configuration first to list its devices");
+            } else {
+              $hint.text("could not list devices: " + (body.error || xhr.statusText || "error"));
+            }
+          })
+          .always(refreshPreview);
+      }
+
+      $url.on("input", function () {
+        if (!$url.prop("readonly")) directUrl = $url.val();
+      });
+      $device.on("change", function () {
+        current = $device.val();
+        refreshPreview();
+      });
+      $hub.on("change", loadDevices);
+      loadDevices();
+
+      return {
+        // Called from oneditsave: never persist the hub preview as a direct URL.
+        save: function () {
+          if (hubNodeFor($hub.val())) $url.val("");
+        },
+      };
+    };
+  })();
+</script>
+
+<script type="text/html" data-template-name="conecsa-hub">
+  <div class="form-row">
+    <label for="node-config-input-name"><i class="fa fa-tag"></i> Name</label>
+    <input type="text" id="node-config-input-name" placeholder="Name" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-host"><i class="fa fa-server"></i> Host</label>
+    <input type="text" id="node-config-input-host" placeholder="192.168.1.10" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-port"><i class="fa fa-plug"></i> Port</label>
+    <input type="text" id="node-config-input-port" placeholder="8443" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-apiKey"><i class="fa fa-key"></i> API key</label>
+    <input type="password" id="node-config-input-apiKey" placeholder="X-Api-Key from the hub" />
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-cafile"><i class="fa fa-certificate"></i> CA certificate</label>
+    <label class="red-ui-button" for="node-config-input-cafile" style="width:auto"><i class="fa fa-upload"></i> Upload</label>
+    <input class="hide" type="file" id="node-config-input-cafile" accept=".crt,.pem,.cer" />
+    <button type="button" class="red-ui-button red-ui-button-small" id="conecsa-hub-ca-clear" title="Clear" style="margin-left:6px"><i class="fa fa-times"></i></button>
+    <input type="hidden" id="node-config-input-ca" />
+  </div>
+  <div class="form-row">
+    <label>&nbsp;</label>
+    <span id="conecsa-hub-ca-status" style="color:#888"></span>
+  </div>
+  <div class="form-row">
+    <label for="node-config-input-verify"><i class="fa fa-lock"></i> Verify</label>
+    <input type="checkbox" id="node-config-input-verify" style="display:inline-block; width:auto; vertical-align:top" />
+    <span style="margin-left:4px">Verify the hub's server certificate</span>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="conecsa-hub">
+  <p>
+    Connection to a Conecsa hub (hub-vision). Nodes that select a hub reach
+    the paired devices through the hub's <b>Developer API</b>:
+    <code>https://&lt;host&gt;:&lt;port&gt;/devices/&lt;device&gt;/api/...</code>
+  </p>
+  <h3>Setup</h3>
+  <ol>
+    <li>On the hub, open <b>Settings → Developer</b> (owner/admin) and turn
+      <b>Accept requests</b> on.</li>
+    <li>Copy the API key into this node and, if you changed the port there,
+      mirror it here (default <code>8443</code>).</li>
+    <li>Click <b>Download CA certificate</b> on the hub and upload the
+      <code>conecsa-hub-ca.crt</code> file here, so the hub's certificate
+      verifies. Turning <b>Verify</b> off keeps the connection encrypted but
+      unauthenticated — only for testing.</li>
+    <li>Use the hub's IP address as the host: the certificate lists the hub's
+      LAN addresses.</li>
+  </ol>
+  <p>
+    The API key and the certificate are stored as Node-RED credentials
+    (encrypted, not exported with the flow). Deploy the hub configuration
+    once; the Device list in each node is then fetched from the hub.
+  </p>
+</script>

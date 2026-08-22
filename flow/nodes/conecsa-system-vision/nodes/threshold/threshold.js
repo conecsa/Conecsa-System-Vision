@@ -18,7 +18,7 @@ module.exports = function (RED) {
 
 
     function readCurrentThresholdFromStatus(emit, event) {
-      request(node.inferenceUrl, "GET", "/api/v1/status", null, (err, status) => {
+      request(node.target, "GET", "/api/v1/status", null, (err, status) => {
         if (err) {
           node.status({ fill: "red", shape: "ring", text: "unreachable" });
           return;
@@ -53,7 +53,7 @@ module.exports = function (RED) {
     readCurrentThresholdFromStatus();
     const pollInterval = setInterval(readCurrentThresholdFromStatus, 5000);
 
-    const eventStream = subscribeSSE(node.inferenceUrl, "/api/v1/events/stream", {
+    const eventStream = subscribeSSE(node.target, "/api/v1/events/stream", {
       onEvent: (event) => {
         const keys = Array.isArray(event.keys) ? event.keys : [];
         const relevant =
@@ -83,7 +83,7 @@ module.exports = function (RED) {
           ? "/api/v1/overlay_threshold"
           : "/api/v1/threshold";
 
-      request(node.inferenceUrl, "POST", path, { threshold: value }, (err, body) => {
+      request(node.target, "POST", path, { threshold: value }, (err, body) => {
         if (err) {
           node.error("Threshold request failed: " + err.message, msg);
           node.status({ fill: "red", shape: "ring", text: "error" });
@@ -106,5 +106,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("threshold", ThresholdNode);
+  RED.nodes.registerType("conecsa-threshold", ThresholdNode);
 };

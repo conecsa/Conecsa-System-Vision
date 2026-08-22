@@ -46,7 +46,7 @@ module.exports = function (RED) {
     // Seed the cached state from an authoritative /status read (used on
     // connect/reconnect, where the invalidation snapshot carries no state).
     function seedFromStatus() {
-      request(node.inferenceUrl, "GET", "/api/v1/status", null, (err, status) => {
+      request(node.target, "GET", "/api/v1/status", null, (err, status) => {
         if (err || !status) return;
         applyRunning(!!status.is_running, false);
       }, { source: nodeSource });
@@ -57,7 +57,7 @@ module.exports = function (RED) {
     // whether the change was triggered by this node, the web UI, another flow,
     // or curl. State changes arrive as `detection_state_changed` events; the
     // stream also carries invalidation/stats traffic which we ignore here.
-    const stream = subscribeSSE(node.inferenceUrl, "/api/v1/events/stream", {
+    const stream = subscribeSSE(node.target, "/api/v1/events/stream", {
       onEvent: (body) => {
         if (!body || body.type === "stats") return;
         if (body.type === "state_snapshot") {
@@ -87,7 +87,7 @@ module.exports = function (RED) {
 
       function postAction(resolvedAction) {
         const path = `/api/v1/${resolvedAction}`;
-        request(node.inferenceUrl, "POST", path, null, (err, _body) => {
+        request(node.target, "POST", path, null, (err, _body) => {
           if (err) {
             node.error("Start/stop request failed: " + err.message, msg);
             node.status({ fill: "red", shape: "ring", text: "error" });
@@ -104,7 +104,7 @@ module.exports = function (RED) {
         if (isRunning === null) {
           // SSE has not delivered the initial snapshot yet; fall back
           // to a one-shot status fetch so the toggle still works.
-          request(node.inferenceUrl, "GET", "/api/v1/status", null, (err, status) => {
+          request(node.target, "GET", "/api/v1/status", null, (err, status) => {
             if (err) {
               node.error("Cannot reach inference service: " + err.message, msg);
               node.status({ fill: "red", shape: "ring", text: "unreachable" });
@@ -125,5 +125,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("start-stop", StartStopNode);
+  RED.nodes.registerType("conecsa-start-stop", StartStopNode);
 };

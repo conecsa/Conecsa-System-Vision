@@ -23,18 +23,18 @@ describe("reset-stats node", () => {
 
   it("registers with its configured type and default scope", async () => {
     gw = await startMockGateway(okRoutes);
-    const flow = [{ id: "n1", type: "reset-stats", inferenceUrl: gw.url }];
+    const flow = [{ id: "n1", type: "conecsa-reset-stats", inferenceUrl: gw.url }];
     await helper.load(resetStatsNode, flow);
     const n1 = helper.getNode("n1");
     expect(n1).toBeDefined();
-    expect(n1.type).toBe("reset-stats");
+    expect(n1.type).toBe("conecsa-reset-stats");
     expect(n1.scope).toBe("all");
   });
 
   it("scope counter resets only the counter", async () => {
     gw = await startMockGateway(okRoutes);
     const flow = [
-      { id: "n1", type: "reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(resetStatsNode, flow);
@@ -53,7 +53,7 @@ describe("reset-stats node", () => {
   it("scope all resets the counter first, then the stats", async () => {
     gw = await startMockGateway(okRoutes);
     const flow = [
-      { id: "n1", type: "reset-stats", inferenceUrl: gw.url, scope: "all", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-reset-stats", inferenceUrl: gw.url, scope: "all", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(resetStatsNode, flow);
@@ -72,7 +72,7 @@ describe("reset-stats node", () => {
   it("msg.scope overrides the configured scope", async () => {
     gw = await startMockGateway(okRoutes);
     const flow = [
-      { id: "n1", type: "reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(resetStatsNode, flow);
@@ -95,7 +95,7 @@ describe("reset-stats node", () => {
       "POST /api/v1/counter/reset": (req, res) => res.socket.destroy(),
     });
     const flow = [
-      { id: "n1", type: "reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-reset-stats", inferenceUrl: gw.url, scope: "counter", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(resetStatsNode, flow);

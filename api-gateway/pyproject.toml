@@ -6,7 +6,7 @@
 # resolve the `gateway` package and hosts future Python tool config.
 [project]
 name = "conecsa-api-gateway"
-version = "2026.3-LTS"
+version = "2026.4-LTS"
 description = "Thin HTTP↔gRPC/SHM gateway: the only external REST/SSE/MJPEG surface."
 requires-python = ">=3.10"
 

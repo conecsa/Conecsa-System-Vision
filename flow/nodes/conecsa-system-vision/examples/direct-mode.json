@@ -1,0 +1,54 @@
+[
+  {
+    "id": "direct-example-tab",
+    "type": "tab",
+    "label": "Conecsa direct",
+    "disabled": false,
+    "info": "Direct mode — for flows running inside a Conecsa System Vision device (the Flow container), where the api-gateway is reachable at http://api-gateway:5000. Leave Hub empty; set API endpoint only to point at another gateway."
+  },
+  {
+    "id": "direct-example-inject",
+    "type": "inject",
+    "z": "direct-example-tab",
+    "name": "toggle",
+    "props": [{ "p": "payload" }],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 80,
+    "wires": [["direct-example-start-stop"]]
+  },
+  {
+    "id": "direct-example-start-stop",
+    "type": "conecsa-start-stop",
+    "z": "direct-example-tab",
+    "name": "",
+    "hub": "",
+    "device": "",
+    "inferenceUrl": "",
+    "action": "toggle",
+    "x": 340,
+    "y": 80,
+    "wires": [["direct-example-debug"]]
+  },
+  {
+    "id": "direct-example-debug",
+    "type": "debug",
+    "z": "direct-example-tab",
+    "name": "is_running",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 560,
+    "y": 80,
+    "wires": []
+  }
+]

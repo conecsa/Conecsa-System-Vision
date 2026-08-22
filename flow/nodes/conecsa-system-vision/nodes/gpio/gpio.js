@@ -36,7 +36,7 @@ module.exports = function (RED) {
     // and (when `emit`) send downstream only on an actual change — so external
     // updates picked up over SSE flow through, but the initial sync does not.
     function readPinFromStatus(emit, event) {
-      request(node.inferenceUrl, "GET", "/api/v1/gpio/status", null, (err, status) => {
+      request(node.target, "GET", "/api/v1/gpio/status", null, (err, status) => {
         if (err || !status || !status.pin_states) {
           node.status({ fill: "red", shape: "ring", text: "unreachable" });
           return;
@@ -58,7 +58,7 @@ module.exports = function (RED) {
     // Live-update the badge whenever GPIO state changes on any client. The
     // gateway publishes `gpio_changed` events (keys: ["gpio"]) for both the
     // trigger toggle and per-pin writes; ignore our own writes (handled below).
-    const eventStream = subscribeSSE(node.inferenceUrl, "/api/v1/events/stream", {
+    const eventStream = subscribeSSE(node.target, "/api/v1/events/stream", {
       onEvent: (event) => {
         const keys = Array.isArray(event.keys) ? event.keys : [];
         const relevant =
@@ -76,7 +76,7 @@ module.exports = function (RED) {
     // Drive the pin to `level` and emit on success.
     function setPin(level, msg) {
       request(
-        node.inferenceUrl,
+        node.target,
         "POST",
         "/api/v1/gpio/pin",
         { pin: node.pin, level: level },
@@ -107,7 +107,7 @@ module.exports = function (RED) {
         if (currentLevel === null) {
           // SSE/status sync has not delivered a level yet; fall back to a
           // one-shot status read so the toggle still works.
-          request(node.inferenceUrl, "GET", "/api/v1/gpio/status", null, (err, status) => {
+          request(node.target, "GET", "/api/v1/gpio/status", null, (err, status) => {
             if (err || !status || !status.pin_states) {
               node.error(
                 "Cannot read GPIO status for toggle: " + (err ? err.message : "no pin_states"),
@@ -134,5 +134,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("gpio", GpioNode);
+  RED.nodes.registerType("conecsa-gpio", GpioNode);
 };

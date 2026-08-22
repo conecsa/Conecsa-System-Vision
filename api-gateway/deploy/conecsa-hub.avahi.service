@@ -31,6 +31,6 @@
     <txt-record>name=conecsa-000000</txt-record>
     <txt-record>http_port=80</txt-record>
     <txt-record>gateway_port=5000</txt-record>
-    <txt-record>version=2026.3-LTS</txt-record>
+    <txt-record>version=2026.4-LTS</txt-record>
   </service>
 </service-group>

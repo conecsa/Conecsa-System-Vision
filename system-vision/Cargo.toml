@@ -1,6 +1,6 @@
 [package]
 name = "conecsa-system-vision"
-version = "2026.3.0"
+version = "2026.4.0"
 description = "Conecsa Object Detection Application"
 license = "MIT"
 authors = ["Conecsa Automação"]
@@ -24,8 +24,8 @@ leptos_i18n_build = { version = "0.6.2", features = ["csr"] }
 
 # ── Shared dependencies ───────────────────────────────────────────────────────
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.150"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 prost = "0.14.4"
 bytes = "1.12.1"
 

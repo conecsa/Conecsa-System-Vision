@@ -11,6 +11,11 @@ including the legacy aliases, which are separate view functions. Reads are not
 recorded. The routes marked **hub-only** below answer to the paired hub alone
 (mTLS, verified by the nginx terminator) and return `403` to anyone else.
 
+Third-party systems reach these routes through the hub's
+[Developer API](services/hub-vision.md#developer-api):
+`https://<hub>:8443/devices/<device_id>/api/...` with an `X-Api-Key` header,
+forwarded over the hub's mTLS channel.
+
 ## Detection
 
 | Method | Endpoint | Description |

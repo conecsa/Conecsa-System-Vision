@@ -18,9 +18,9 @@ describe("stats node", () => {
 
   it("registers with the default on-change mode", async () => {
     gw = await startMockGateway({});
-    await helper.load(statsNode, [{ id: "n1", type: "stats", inferenceUrl: gw.url }]);
+    await helper.load(statsNode, [{ id: "n1", type: "conecsa-stats", inferenceUrl: gw.url }]);
     const n1 = helper.getNode("n1");
-    expect(n1.type).toBe("stats");
+    expect(n1.type).toBe("conecsa-stats");
     expect(n1.mode).toBe("on-change");
   });
 
@@ -33,7 +33,7 @@ describe("stats node", () => {
       },
     });
     const flow = [
-      { id: "n1", type: "stats", inferenceUrl: gw.url, mode: "on-change", wires: [["n2"]] },
+      { id: "n1", type: "conecsa-stats", inferenceUrl: gw.url, mode: "on-change", wires: [["n2"]] },
       { id: "n2", type: "helper" },
     ];
     await helper.load(statsNode, flow);

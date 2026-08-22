@@ -66,7 +66,7 @@ module.exports = function (RED) {
       }
     }
 
-    const stream = subscribeSSE(node.inferenceUrl, "/api/v1/stats/stream", {
+    const stream = subscribeSSE(node.target, "/api/v1/stats/stream", {
       onEvent: handleEvent,
       onError: () => {
         node.status({ fill: "red", shape: "ring", text: "error" });
@@ -82,5 +82,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("stats", StatsNode);
+  RED.nodes.registerType("conecsa-stats", StatsNode);
 };

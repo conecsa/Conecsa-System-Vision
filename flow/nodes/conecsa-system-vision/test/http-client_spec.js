@@ -1,6 +1,7 @@
 "use strict";
 const http = require("http");
-const { request, subscribeSSE, inferenceBaseUrl } = require("../lib/http-client");
+const { request, subscribeSSE, inferenceBaseUrl, normalizeTarget } = require("../lib/http-client");
+const { startMockHub } = require("./_mock-hub");
 
 /** Start a throwaway HTTP server on an ephemeral port; resolves with {url, close}. */
 function startServer(handler) {
@@ -194,5 +195,150 @@ describe("subscribeSSE", () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe("request — HTTP error statuses", () => {
+  test("a non-2xx JSON reply is an error carrying the status and body", async () => {
+    const server = await startServer((req, res) => {
+      res.writeHead(401, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid API key" }));
+    });
+    try {
+      const err = await new Promise((resolve) =>
+        request(server.url, "GET", "/devices", null, (e) => resolve(e))
+      );
+      expect(err).toBeInstanceOf(Error);
+      expect(err.message).toBe("HTTP 401: invalid API key");
+      expect(err.statusCode).toBe(401);
+      expect(err.body).toEqual({ error: "invalid API key" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a non-2xx non-JSON reply still reports the status", async () => {
+    const server = await startServer((req, res) => {
+      res.writeHead(502);
+      res.end("<html>bad gateway</html>");
+    });
+    try {
+      const err = await new Promise((resolve) =>
+        request(server.url, "GET", "/x", null, (e) => resolve(e))
+      );
+      expect(err.message).toBe("HTTP 502");
+      expect(err.statusCode).toBe(502);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("normalizeTarget", () => {
+  test("wraps a string base URL", () => {
+    expect(normalizeTarget("http://a:1")).toEqual({ baseUrl: "http://a:1", headers: {}, tls: null });
+  });
+  test("keeps a target object and defaults its optional parts", () => {
+    expect(normalizeTarget({ baseUrl: "https://h:8443/devices/d" })).toEqual({
+      baseUrl: "https://h:8443/devices/d", headers: {}, tls: null,
+    });
+  });
+  test("rejects anything else", () => {
+    expect(() => normalizeTarget({})).toThrow(TypeError);
+    expect(() => normalizeTarget(null)).toThrow(TypeError);
+  });
+});
+
+describe("target objects over HTTPS (hub mode)", () => {
+  let hub;
+  afterEach(async () => {
+    if (hub) await hub.close();
+    hub = null;
+  });
+
+  function target(overrides = {}) {
+    return Object.assign(
+      {
+        baseUrl: `${hub.url}/devices/conecsa-084936`,
+        headers: { "X-Api-Key": hub.apiKey },
+        tls: { ca: hub.ca, rejectUnauthorized: true },
+      },
+      overrides
+    );
+  }
+
+  test("request sends the standing headers and trusts the hub CA", async () => {
+    hub = await startMockHub({
+      routes: { "GET /api/v1/status": (req, res) => res.end(JSON.stringify({ is_running: true })) },
+    });
+    const body = await new Promise((resolve, reject) =>
+      request(target(), "GET", "/api/v1/status", null, (e, b) => (e ? reject(e) : resolve(b)), {
+        source: "node-red:n1",
+      })
+    );
+    expect(body).toEqual({ is_running: true });
+    expect(hub.requests[0].path).toBe("/devices/conecsa-084936/api/v1/status");
+    expect(hub.requests[0].apiKey).toBe(hub.apiKey);
+    expect(hub.requests[0].headers["x-conecsa-source"]).toBe("node-red:n1");
+  });
+
+  test("verification fails against an unrelated CA or no CA", async () => {
+    hub = await startMockHub();
+    for (const tls of [{ ca: hub.otherCa, rejectUnauthorized: true }, { rejectUnauthorized: true }]) {
+      const err = await new Promise((resolve) =>
+        request(target({ tls }), "GET", "/api/v1/status", null, (e) => resolve(e))
+      );
+      expect(err).toBeTruthy();
+      expect(err.code).toMatch(/SELF_SIGNED|UNABLE_TO_VERIFY|DEPTH_ZERO|CERT/);
+    }
+    expect(hub.requests).toHaveLength(0);
+  });
+
+  test("rejectUnauthorized:false connects without a CA", async () => {
+    hub = await startMockHub({
+      routes: { "GET /api/v1/status": (req, res) => res.end(JSON.stringify({ ok: 1 })) },
+    });
+    const body = await new Promise((resolve, reject) =>
+      request(target({ tls: { rejectUnauthorized: false } }), "GET", "/api/v1/status", null, (e, b) =>
+        e ? reject(e) : resolve(b)
+      )
+    );
+    expect(body).toEqual({ ok: 1 });
+  });
+
+  test("a wrong key is a 401 error, not a parsed body", async () => {
+    hub = await startMockHub();
+    const err = await new Promise((resolve) =>
+      request(target({ headers: { "X-Api-Key": "wrong-key-for-this-test" } }), "GET", "/api/v1/status", null, (e) =>
+        resolve(e)
+      )
+    );
+    expect(err.statusCode).toBe(401);
+    expect(err.message).toMatch(/invalid API key/);
+  });
+
+  test("subscribeSSE carries the headers and TLS settings too", async () => {
+    let sseRes;
+    hub = await startMockHub({
+      routes: {
+        "GET /api/v1/events/stream": (req, res) => {
+          res.writeHead(200, { "Content-Type": "text/event-stream" });
+          sseRes = res;
+          res.write('data: {"type":"state_snapshot"}\n\n');
+        },
+      },
+    });
+    const handle = await new Promise((resolve) => {
+      const h = subscribeSSE(target(), "/api/v1/events/stream", {
+        onEvent: (ev) => {
+          expect(ev).toEqual({ type: "state_snapshot" });
+          resolve(h);
+        },
+      });
+    });
+    handle.close();
+    expect(sseRes).toBeDefined();
+    expect(hub.requests[0].apiKey).toBe(hub.apiKey);
+    expect(hub.requests[0].path).toBe("/devices/conecsa-084936/api/v1/events/stream");
   });
 });

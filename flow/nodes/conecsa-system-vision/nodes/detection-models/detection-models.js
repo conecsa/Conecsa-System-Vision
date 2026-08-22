@@ -18,7 +18,7 @@ module.exports = function (RED) {
 
 
     function fetchModels(msg, emit, event) {
-      request(node.inferenceUrl, "GET", "/api/v1/models", null, (err, body) => {
+      request(node.target, "GET", "/api/v1/models", null, (err, body) => {
         if (err) {
           node.error("Model list failed: " + err.message, msg);
           node.status({ fill: "red", shape: "ring", text: "error" });
@@ -40,7 +40,7 @@ module.exports = function (RED) {
       });
     }
 
-    const eventStream = subscribeSSE(node.inferenceUrl, "/api/v1/events/stream", {
+    const eventStream = subscribeSSE(node.target, "/api/v1/events/stream", {
       onEvent: (event) => {
         const keys = Array.isArray(event.keys) ? event.keys : [];
         const relevant =
@@ -70,7 +70,7 @@ module.exports = function (RED) {
         }
 
         request(
-          node.inferenceUrl,
+          node.target,
           "POST",
           "/api/v1/model/select",
           { model_name: modelName },
@@ -100,5 +100,5 @@ module.exports = function (RED) {
     });
   }
 
-  RED.nodes.registerType("detection-models", DetectionModelsNode);
+  RED.nodes.registerType("conecsa-detection-models", DetectionModelsNode);
 };

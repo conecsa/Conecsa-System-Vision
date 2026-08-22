@@ -309,6 +309,67 @@ headers are cleared before being written, so a page being proxied cannot claim
 to be someone else: an unauthenticated request arrives with no identity rather
 than a forged one.
 
+## Developer API
+
+Because devices answer only to the hub, nothing else on the network can call a
+device's api-gateway — until an admin opens the hub's **Developer API**
+(**Settings → Developer**, owner/admin only, off by default). With **Accept
+requests** on, the hub listens on every IPv4 interface (`0.0.0.0`; IPv6 is not
+served — HTTPS, port `8443` by default, editable) and forwards requests to any
+paired device:
+
+```
+GET  https://<hub-ip>:8443/devices                      paired devices (JSON: id, name, ip, online, running, version, last_seen)
+*    https://<hub-ip>:8443/devices/<device_id>/api/...  forwarded to the device's api-gateway
+```
+
+Every request must carry `X-Api-Key: <key>`. The key is minted (64 hex
+characters, 256 bits of randomness; anything shorter than 16 characters is
+refused outright) the first time the API is turned on, shown in the Developer
+section, and can be **rotated** there — the old key stops working on the next
+request. It is stored in the encrypted secret store next to the CA key; it is
+compared in constant time, never logged, and stripped before the request leaves
+the hub. A wrong or missing key gets `401`, an unpaired device id `404`, an
+offline device `503`.
+
+Only `/api/...` is forwardable (the api-gateway surface: `/api/v1/*` and the
+legacy `/api/*` aliases). `/enroll/*` — which can reset a device's pairing —
+`/flow/*` and the UI shell are not reachable this way; a path with a `.` or
+`..` segment (raw or percent-encoded), which the device's nginx would
+normalize out of `/api`, is refused with `400`. Bodies are piped in both
+directions, so MJPEG (`/api/v1/video_feed*`), SSE (`/api/v1/events/stream`),
+uploads and downloads all work; websocket upgrades are not supported (the
+api-gateway has none). Each live stream pins a worker thread on the device, so
+fan out streams with care.
+
+The listener's certificate is issued by the hub's own CA on every start, with
+the hub's LAN IPv4 addresses as subject alternative names, so `https://<ip>:8443`
+validates once the client trusts the CA. **Download CA certificate** in the
+Developer section saves `conecsa-hub-ca.crt` (PEM) for that:
+
+```bash
+curl --cacert conecsa-hub-ca.crt -H "X-Api-Key: $KEY" https://192.168.1.10:8443/devices
+curl --cacert conecsa-hub-ca.crt -H "X-Api-Key: $KEY" \
+     https://192.168.1.10:8443/devices/<device_id>/api/v1/status
+curl --cacert conecsa-hub-ca.crt -H "X-Api-Key: $KEY" -X POST \
+     https://192.168.1.10:8443/devices/<device_id>/api/v1/start
+```
+
+Node-RED users need no curl: the
+[`@conecsa/node-red-contrib-conecsa-system-vision`](https://www.npmjs.com/package/@conecsa/node-red-contrib-conecsa-system-vision)
+package (the same nodes the device's Flow ships, see [Flow](flow.md#connecting-the-nodes))
+has a `conecsa-hub` configuration node that takes this URL, key and CA file and
+lets every node pick a paired device from the hub's list.
+
+Forwarded requests reach the device over the same mTLS channel as the
+operator's, stamped as user `api-key` with the `admin` role (so every
+api-gateway route is reachable — the key is the whole boundary) and with the
+caller's IP as `X-Conecsa-Origin-Ip`, which is what the device's
+[audit trail](#audit-trail) then shows. Turning the API on or off, rotating
+the key and changing the port are audited on the hub. The API runs as long as
+the hub app is running and the toggle is on; it does not depend on anyone
+being signed in.
+
 ## Federated training
 
 The **Training** page (owner/admin only) trains one YOLO model across **every

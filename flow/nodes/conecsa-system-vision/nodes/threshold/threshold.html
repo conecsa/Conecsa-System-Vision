@@ -1,9 +1,11 @@
 <script type="text/javascript">
-  RED.nodes.registerType("threshold", {
+  RED.nodes.registerType("conecsa-threshold", {
     category: "Conecsa",
     color: "#1a73e8",
     defaults: {
       name: { value: "" },
+      hub: { value: "", type: "conecsa-hub", required: false },
+      device: { value: "" },
       inferenceUrl: { value: "" },
       thresholdType: { value: "confidence" },
       value: { value: "0.5", validate: RED.validators.number() },
@@ -14,24 +16,33 @@
     label: function () {
       return this.name || "threshold";
     },
+    oneditprepare: function () {
+      this._conecsaHub = window.conecsaHubFields ? window.conecsaHubFields(this) : null;
+    },
+    oneditsave: function () {
+      if (this._conecsaHub) this._conecsaHub.save();
+    },
     paletteLabel: "threshold",
   });
 </script>
 
-<script type="text/html" data-template-name="threshold">
+<script type="text/html" data-template-name="conecsa-threshold">
   <div class="form-row">
     <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
     <input type="text" id="node-input-name" placeholder="Name" />
   </div>
   <div class="form-row">
-    <label for="node-input-inferenceUrl"
-      ><i class="fa fa-server"></i> Inference URL</label
-    >
-    <input
-      type="text"
-      id="node-input-inferenceUrl"
-      placeholder="http://api-gateway:5000"
-    />
+    <label for="node-input-hub"><i class="fa fa-sitemap"></i> Hub</label>
+    <input type="text" id="node-input-hub" />
+  </div>
+  <div class="form-row" id="conecsa-device-row">
+    <label for="node-input-device"><i class="fa fa-id-card"></i> Device</label>
+    <select id="node-input-device" style="width:70%"></select>
+    <span id="conecsa-device-hint" style="display:block; margin-left:105px; color:#888; font-size:0.9em"></span>
+  </div>
+  <div class="form-row">
+    <label for="node-input-inferenceUrl"><i class="fa fa-server"></i> API endpoint</label>
+    <input type="text" id="node-input-inferenceUrl" placeholder="http://api-gateway:5000" />
   </div>
   <div class="form-row">
     <label for="node-input-thresholdType"><i class="fa fa-cog"></i> Type</label>
@@ -46,9 +57,19 @@
   </div>
 </script>
 
-<script type="text/html" data-help-name="threshold">
+<script type="text/html" data-help-name="conecsa-threshold">
   <p>
     Sets the confidence or overlay threshold on the inference service.
+  </p>
+  <h3>Connection</h3>
+  <p>
+    Select a <b>Hub</b> (a <code>conecsa-hub</code> configuration) and a
+    <b>Device</b> to reach the device through the hub's Developer API; the
+    <b>API endpoint</b> then shows the resulting route
+    (<code>https://&lt;hub&gt;:&lt;port&gt;/devices/&lt;device&gt;</code>).
+    Leave the hub empty to call an api-gateway directly: the API endpoint field,
+    then the <code>INFERENCE_URL</code> environment variable, then
+    <code>http://api-gateway:5000</code> (the default inside a device).
   </p>
   <h3>Configuration</h3>
   <dl class="message-properties">
