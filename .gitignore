@@ -1,7 +1,10 @@
 # IDEs
 .idea/
 .vscode/
-.claude/
+# Claude Code: skills/, rules/ and settings.json are committed; only the
+# per-user overrides and worktrees stay local.
+.claude/settings.local.json
+.claude/worktrees/
 *.swp
 *.swo
 *~

@@ -22,6 +22,13 @@ WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Sao_Paulo
 
+# Fetch apt packages over https only — some networks drop plain http, which
+# would fail the build. The CUDA base ships ca-certificates, so TLS already
+# works here; the grep guard fails the build if a base-image update ever
+# reintroduces an http source this sed does not catch.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list \
+    && ! grep -rq 'http://' /etc/apt/sources.list /etc/apt/sources.list.d/
+
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
         python3.10 \
         python3.10-dev \

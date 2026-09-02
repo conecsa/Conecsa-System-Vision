@@ -4,7 +4,7 @@ Model service - Manages model loading and switching.
 import logging
 import os
 from threading import Lock, RLock
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Optional, Tuple
 
 from conecsa_common import atomic_write_bytes
 
@@ -228,7 +228,8 @@ class ModelService:
                 logger.error(f"Error saving model: {ex}")
                 return False, "", str(ex)
 
-    def process_upload(self, filename: str, file_data, imgsz: int = 640) -> Tuple[dict, int]:
+    def process_upload(self, filename: str, file_data, imgsz: int = 640,
+                       train_geometry: Optional[str] = None) -> Tuple[dict, int]:
         """Full upload lifecycle — owns the business logic so both the REST
         controller and the gRPC servicer are thin adapters over it.
 
@@ -242,6 +243,9 @@ class ModelService:
             file_data: File-like object exposing ``.save(path)`` (Flask
                 FileStorage over HTTP, or a bytes adapter over gRPC).
             imgsz: Image size for .pt conversion (ignored otherwise).
+            train_geometry: Declared training geometry (``"frames"``,
+                ``"tiles:auto"``, ``"tiles:<px>"``) recorded in the model's
+                settings sidecar by the .pt conversion; ``None`` = unknown.
 
         Returns:
             (body, http_status) — body is the JSON-serializable response the
@@ -275,6 +279,7 @@ class ModelService:
                     original_filename=filename,
                     model_directory=self.model_directory,
                     imgsz=imgsz,
+                    train_geometry=train_geometry,
                 )
                 logger.info(f"Async conversion job {job.job_id} started for {filename}")
                 return {

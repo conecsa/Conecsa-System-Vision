@@ -5,6 +5,13 @@ FROM rust:1.98-slim AS frontend-builder
 
 WORKDIR /app
 
+# Fetch apt packages over https only — some networks drop plain http, which
+# would fail the build. The rust base ships ca-certificates, so TLS already
+# works here; the grep guard fails the build if a base-image update ever
+# reintroduces an http source this sed does not catch.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+    && ! grep -rq 'http://' /etc/apt/sources.list.d/
+
 # Install system dependencies including binaryen
 RUN apt-get update && apt-get install -y \
     pkg-config \

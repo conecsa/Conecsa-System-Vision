@@ -2,9 +2,18 @@
 
 Replicates the live detector's view: the side-by-side stereo frame is blended
 into a single half-width image (``conecsa_shm.stereo`` — same math as the
-inference-service), then letterboxed to the 640×640 training resolution with
-the YOLO gray padding (114). Letterboxing (not stretching) keeps the dataset
-geometry identical to what the detector sees at inference time.
+inference-service). What is stored then depends on the dataset geometry
+(``Config.DATASET_IMG_SIZE``, env ``TRAIN_DATASET_IMG_SIZE``):
+
+* ``0`` (the default) — the combined frame is stored at its native
+  resolution and letterboxing is left to ultralytics at train time, so any
+  ``imgsz`` trains on real pixels instead of upscaled ones.
+* ``> 0`` — legacy format: the frame is letterboxed to that square (640) with
+  the YOLO gray padding (114), identical to what the detector sees at
+  inference time with ``imgsz=640``.
+
+Every dataset records the geometry it was created with (``meta.json``), so the
+two formats are never mixed inside one dataset.
 """
 import logging
 import time
@@ -83,14 +92,19 @@ class CaptureService:
             frame = combine_stereo(frame, alpha=alpha, offset=offset, offset_y=offset_y)
         return frame
 
-    def capture_letterboxed(self) -> Optional[bytes]:
-        """Capture one frame as a 640×640 letterboxed JPEG (dataset format)."""
+    def capture_dataset_image(self) -> Optional[bytes]:
+        """Capture one frame as a JPEG in the configured dataset geometry.
+
+        ``DATASET_IMG_SIZE > 0`` letterboxes the combined frame to that square
+        (historical 640×640 format); ``0`` encodes it at native resolution.
+        """
         frame = self.grab_combined()
         if frame is None:
             logger.warning("Capture failed: no camera frame available")
             return None
-        boxed = letterbox_square(frame, self._config.IMG_SIZE)
-        ok, buf = cv2.imencode(".jpg", boxed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        size = int(self._config.DATASET_IMG_SIZE)
+        image = letterbox_square(frame, size) if size > 0 else frame
+        ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])
         return buf.tobytes() if ok else None
 
 

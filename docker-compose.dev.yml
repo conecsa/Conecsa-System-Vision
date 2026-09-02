@@ -82,7 +82,10 @@ services:
       - CAPTURE_FRAMERATE=60
       - CAPTURE_AUTO_EXPOSURE=false
       - CAPTURE_EXPOSURE_TIME=166
-      - PROCESSING_DECODE_SCALE=2
+      # 1 so the default TILING_MODE=grid cuts its tiles from native pixels
+      # (see docker-compose.yml); 2 only pays off with TILING_MODE=off.
+      - PROCESSING_DECODE_SCALE=1
+      - YOLO_AUTOINSTALL=false
       - STEREO_COMBINE=none
       - STEREO_BLEND_ALPHA=0.5
       - CAPTURE_RGB_RED=128
@@ -186,6 +189,7 @@ services:
       - TRAIN_BATCH=4
       - TRAIN_WORKERS=0
       - TRAIN_STALL_TIMEOUT_SEC=3600
+      - YOLO_AUTOINSTALL=false
       - SAM3_CHECKPOINT=/app/training-service/assets/sam3.pt
       - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
     volumes:

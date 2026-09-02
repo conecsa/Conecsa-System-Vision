@@ -10,6 +10,10 @@ Modules:
   loading that reports corruption instead of silently defaulting.
 - ``bounded_sqlite``: the bounded SQLite ring queue shared by the detection
   buffer and the audit trail.
+- ``tiling``: SAHI-style tile grid + cross-tile merge for small-object
+  detection. It needs numpy, so it is deliberately NOT re-exported here —
+  import ``conecsa_common.tiling`` explicitly to keep the package root
+  dependency-free.
 """
 
 from .atomic import atomic_write_bytes, atomic_write_json, read_json

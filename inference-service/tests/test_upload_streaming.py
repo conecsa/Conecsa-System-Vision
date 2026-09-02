@@ -28,7 +28,15 @@ class StubDetectionService:
 
 
 class StubConversionService:
-    pass
+    def __init__(self):
+        self.pt_calls = []
+
+    def start_pt_conversion(self, pt_path, original_filename, model_directory, imgsz=640,
+                            train_geometry=None):
+        self.pt_calls.append({"pt_path": pt_path, "original_filename": original_filename,
+                              "model_directory": model_directory, "imgsz": imgsz,
+                              "train_geometry": train_geometry})
+        return SimpleNamespace(job_id="job-1")
 
 
 @pytest.fixture
@@ -42,9 +50,10 @@ def servicer(tmp_path):
     return ig.ModelControlServicer(app), str(tmp_path)
 
 
-def _stream(filename, chunks, imgsz=640):
+def _stream(filename, chunks, imgsz=640, train_geometry=""):
     yield ig.pb.ModelChunk(meta=ig.pb.ModelUploadMeta(filename=filename,
-                                                      imgsz=imgsz))
+                                                      imgsz=imgsz,
+                                                      train_geometry=train_geometry))
     for chunk in chunks:
         yield ig.pb.ModelChunk(chunk=chunk)
 
@@ -93,6 +102,36 @@ class TestUploadModel:
         control, model_dir = servicer
         result = control.UploadModel(iter(()), None)
         assert result.http_status == 400
+
+    @pytest.mark.parametrize("imgsz", [640, 1280])
+    def test_imgsz_reaches_the_pt_conversion(self, servicer, imgsz):
+        control, model_dir = servicer
+        conversion = control._app.model_service._conversion_service
+        result = control.UploadModel(_stream("m.pt", [b"weights"], imgsz=imgsz), None)
+        assert result.http_status == 202, result.json
+        assert [c["imgsz"] for c in conversion.pt_calls] == [imgsz]
+        assert conversion.pt_calls[0]["pt_path"] == os.path.join(model_dir, "m.pt")
+
+    def test_train_geometry_reaches_the_pt_conversion(self, servicer):
+        control, _ = servicer
+        conversion = control._models._conversion_service
+        result = control.UploadModel(
+            _stream("m.pt", [b"weights"], train_geometry="tiles:auto"), None)
+        assert result.ok
+        assert conversion.pt_calls[0]["train_geometry"] == "tiles:auto"
+
+    def test_an_undeclared_geometry_is_unknown_not_empty(self, servicer):
+        control, _ = servicer
+        conversion = control._models._conversion_service
+        control.UploadModel(_stream("m.pt", [b"weights"]), None)
+        assert conversion.pt_calls[0]["train_geometry"] is None
+
+    def test_zero_imgsz_means_the_640_default(self, servicer):
+        control, _ = servicer
+        conversion = control._app.model_service._conversion_service
+        result = control.UploadModel(_stream("m.pt", [b"weights"], imgsz=0), None)
+        assert result.http_status == 202, result.json
+        assert conversion.pt_calls[0]["imgsz"] == 640
 
     def test_the_active_model_cannot_be_overwritten(self, servicer):
         control, model_dir = servicer

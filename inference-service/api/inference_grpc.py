@@ -337,7 +337,8 @@ class ModelControlServicer(pb_grpc.ModelControlServicer):
                 fd = None
             imgsz = int(meta.imgsz) or 640
             body, status = self._models.process_upload(
-                meta.filename, _StagedFile(staged_path), imgsz)
+                meta.filename, _StagedFile(staged_path), imgsz,
+                train_geometry=meta.train_geometry or None)
             return pb.UploadResult(ok=(200 <= status < 300),
                                    http_status=int(status),
                                    json=json.dumps(body))

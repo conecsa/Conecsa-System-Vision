@@ -110,9 +110,30 @@ services:
       - CAPTURE_AUTO_EXPOSURE=false
       - CAPTURE_EXPOSURE_TIME=166
       # Reduced-scale decode for inference/overlay (1=full, 2=half, 4=quarter).
-      # The model resizes to ~640 anyway, so decoding at reduced scale keeps the
-      # GPU fed without the cost of a full-resolution JPEG decode per frame.
-      - PROCESSING_DECODE_SCALE=2
+      # 1 is the default: the tiled inference below cuts its tiles from native
+      # pixels (at 2 the combined frame is ~640x360 and the grid collapses to
+      # one tile). 2 only pays off with TILING_MODE=off and a 640 model, which
+      # resizes the frame down anyway. PROCESSED_OUTPUT_SCALE=2 keeps the
+      # published stream (and the single-thread encode stage) at half size.
+      - PROCESSING_DECODE_SCALE=1
+      # Letterbox parity knobs (defaults: black pad, nearest resize; ultralytics
+      # trains with pad 114 and linear interpolation). Change only together
+      # with a model validated under the new values.
+      # - INFER_LETTERBOX_PAD=0
+      # - INFER_RESIZE_INTERP=nearest
+      # SAHI-style tiled inference, on by default: "grid" slices the frame into
+      # overlapping square tiles and merges the shifted boxes. TILING_TILE=auto
+      # (default) uses the frame's short side, so the layout depends only on
+      # the camera's aspect ratio (any 16:9 camera -> two columns, K=2, which
+      # the Orin Nano runs at camera rate with two lanes). Pair grid with a model
+      # trained by the training-service default TRAIN_TILE=auto (the model's
+      # settings sidecar records its geometry and activation warns on a
+      # mismatch); set TILING_MODE=off for a model trained on whole frames.
+      # Needs PROCESSING_DECODE_SCALE=1.
+      # - TILING_MODE=grid
+      # - TILING_TILE=auto
+      # - TILING_OVERLAP=0.2
+      # - TILING_MERGE_IOU=0.5
       # Stereo combine: split the side-by-side (left|right) frame and blend the
       # two eyes into one image for display + detection. Seeded off ("none")
       # because it would tear an ordinary camera's picture in half; the Camera
@@ -128,8 +149,16 @@ services:
 
       - LD_LIBRARY_PATH=/usr/lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu/nvidia:/usr/lib/aarch64-linux-gnu/tegra:/usr/lib/aarch64-linux-gnu/libcusparseLt/12:/usr/local/cuda/lib64:/usr/local/cuda-12.6/targets/aarch64-linux/lib
 
+      # Never let ultralytics auto-pip-install during export: an onnxslim
+      # AutoUpdate re-resolves numpy to 2.x at runtime (opencv-python 5
+      # declares numpy>=2) and breaks pycuda ("initialization of _driver raised
+      # unreported exception") in the respawned TensorRT workers. onnxslim is
+      # baked into os-base instead.
+      - YOLO_AUTOINSTALL=false
       - TENSORRT_AUTO_REBUILD_ENGINE=1
-      - TENSORRT_WORKSPACE_MB=192
+      # 192 MB is enough for 640 engines; a 1280 engine build usually needs
+      # 512 (the builder still retries 256/192/128 before giving up).
+      - TENSORRT_WORKSPACE_MB=512
       # Number of parallel TensorRT inference contexts. >1 runs that many worker
       # subprocesses (ports 5501, 5502, …) and that many decode+infer pipeline
       # lanes, overlapping CPU/GPU across cores. Measured ~1.8x GPU scaling at 2.
@@ -343,14 +372,40 @@ services:
       - STEREO_BLEND_ALPHA=0.5
       - GATEWAY_ADDR=http://api-gateway:5000
       # Training knobs sized for the Orin Nano 8GB.
-      - TRAIN_BATCH=4
+      # Model input size (imgsz) for training and the exported engine. Plain
+      # imgsz=1280 inference runs far below the 25 fps floor on the Orin Nano,
+      # so on-device training stays at the 640 default; small objects are
+      # covered by the tile crops (TRAIN_TILE) instead.
+      # - TRAIN_IMG_SIZE=1280
+      # Dataset storage geometry: 0 (native resolution, the code default) —
+      # kept explicit here because it defines the on-device data format. Set
+      # 640 only to reproduce the legacy letterboxed format;
+      # geometry is recorded per dataset and never mixed.
+      - TRAIN_DATASET_IMG_SIZE=0
+      # Extra allowlisted ultralytics train hyperparameters, space-separated
+      # key=value (e.g. "freeze=10 lr0=0.002 close_mosaic=5"); empty = defaults.
+      # - TRAIN_OVERRIDES=
+      # Training geometry, the pair of the inference-service's TILING_* knobs:
+      # auto (default) trains on square tile crops spanning each image's short
+      # side — the same grid TILING_TILE=auto runs — with per-tile labels;
+      # a pixel value mirrors an explicit TILING_TILE; off trains on whole
+      # frames for a device running TILING_MODE=off.
+      # - TRAIN_TILE=auto
+      # - TRAIN_TILE_OVERLAP=0.2
+      # - TRAIN_TILE_MIN_VISIBLE=0.25
       # 0 = single-process data loading. The shared (small) /dev/shm from
       # webcam-server's IPC namespace cannot back DataLoader worker tensors.
       - TRAIN_WORKERS=0
       # Liveness watchdog: kills the trainer after this long with NO output
       # (a hang), not a cap on total duration — long runs are legitimate.
       # Set TRAIN_TIMEOUT_SEC to re-enable an overall wall-clock cap.
+      # batch 4 fits imgsz 640. If TRAIN_IMG_SIZE is ever raised to 1280 on
+      # this device, drop to TRAIN_BATCH=2: batch 4 at 1280 exhausts the 8 GB
+      # board's memory and freezes it.
+      - TRAIN_BATCH=4
       - TRAIN_STALL_TIMEOUT_SEC=3600
+      # Same guard as the inference-service: no runtime pip installs.
+      - YOLO_AUTOINSTALL=false
       # Baked into the image from training-service/assets/ at build time
       # (operator downloads the HF-gated file locally before building).
       - SAM3_CHECKPOINT=/app/training-service/assets/sam3.pt

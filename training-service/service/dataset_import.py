@@ -1,11 +1,17 @@
 """Import of a pre-existing YOLO-format dataset uploaded as a ZIP.
 
 Validates the archive (structure, classes, label syntax) and normalizes it
-into the internal dataset layout: every image is re-encoded as a 640×640
-letterboxed JPEG — the label editor, SAM worker and trainer all assume that
-geometry — and the label coordinates (normalized on the original W×H) are
-transformed onto the letterboxed square with the exact same rounding as
-``letterbox_square``.
+into the internal dataset layout in the requested geometry (``img_size``,
+i.e. ``Config.DATASET_IMG_SIZE``):
+
+* ``img_size > 0`` — every image is re-encoded as an ``img_size`` square
+  letterboxed JPEG and the label coordinates (normalized on the original
+  W×H) are transformed onto that square with the exact same rounding as
+  ``letterbox_square``.
+* ``img_size == 0`` — every image is decoded (so undecodable files are still
+  rejected and the pixel cap still applies) and re-encoded as a JPEG at its own
+  resolution; label rows are written unchanged, since YOLO coordinates are
+  already normalized to the source image.
 
 Accepted layouts inside the ZIP (Roboflow / ultralytics exports):
 
@@ -19,6 +25,7 @@ Label rows may be detection ("class cx cy w h") or segmentation
 
 All failures raise DatasetImportError with an operator-readable message.
 """
+import io
 import json
 import logging
 import os
@@ -27,7 +34,7 @@ import stat
 import struct
 import uuid
 import zipfile
-from typing import List, Optional, Tuple
+from typing import BinaryIO, List, Optional, Tuple
 
 import cv2
 import yaml
@@ -63,8 +70,10 @@ def import_dataset_zip(zip_path: str, dest_dir: str, img_size: int = 640,
                        max_total_mb: int = 512) -> Tuple[List[str], int]:
     """Validate ``zip_path`` and materialize it into ``dest_dir`` (staging).
 
-    Returns (classes, imported_image_count). The caller owns cleanup of
-    ``dest_dir`` on failure and the atomic rename into place on success.
+    ``img_size`` selects the storage geometry (letterbox square, or ``0`` for
+    native resolution — see the module docstring). Returns
+    (classes, imported_image_count). The caller owns cleanup of ``dest_dir``
+    on failure and the atomic rename into place on success.
     """
     extract_dir = os.path.join(dest_dir, ".extract")
     os.makedirs(os.path.join(dest_dir, "images"), exist_ok=True)
@@ -296,41 +305,53 @@ def _image_dimensions(path: str) -> Optional[Tuple[int, int]]:
     """
     try:
         with open(path, "rb") as f:
-            head = f.read(32)
-            if head[:8] == b"\x89PNG\r\n\x1a\n" and len(head) >= 24:
-                width, height = struct.unpack(">II", head[16:24])
-                return width, height
-            if head[:2] == b"BM" and len(head) >= 26:
-                width, height = struct.unpack("<ii", head[18:26])
-                return abs(width), abs(height)
-            if head[:2] == b"\xff\xd8":
-                f.seek(2)
-                while True:
-                    marker = f.read(2)
-                    if len(marker) < 2 or marker[0] != 0xFF:
-                        return None
-                    code = marker[1]
-                    if code == 0x01 or 0xD0 <= code <= 0xD8:
-                        continue
-                    length_raw = f.read(2)
-                    if len(length_raw) < 2:
-                        return None
-                    (seg_len,) = struct.unpack(">H", length_raw)
-                    if 0xC0 <= code <= 0xCF and code not in (0xC4, 0xC8, 0xCC):
-                        body = f.read(5)
-                        if len(body) < 5:
-                            return None
-                        height, width = struct.unpack(">HH", body[1:5])
-                        return width, height
-                    f.seek(seg_len - 2, 1)
+            return _dimensions_from_stream(f)
     except OSError:
         return None
+
+
+def image_dimensions_from_bytes(data: bytes) -> Optional[Tuple[int, int]]:
+    """(width, height) of an in-memory PNG/JPEG/BMP, header-only (see above)."""
+    return _dimensions_from_stream(io.BytesIO(data))
+
+
+def _dimensions_from_stream(f: BinaryIO) -> Optional[Tuple[int, int]]:
+    """Header-only dimension parse shared by the path and bytes entry points."""
+    head = f.read(32)
+    if head[:8] == b"\x89PNG\r\n\x1a\n" and len(head) >= 24:
+        width, height = struct.unpack(">II", head[16:24])
+        return width, height
+    if head[:2] == b"BM" and len(head) >= 26:
+        width, height = struct.unpack("<ii", head[18:26])
+        return abs(width), abs(height)
+    if head[:2] == b"\xff\xd8":
+        f.seek(2)
+        while True:
+            marker = f.read(2)
+            if len(marker) < 2 or marker[0] != 0xFF:
+                return None
+            code = marker[1]
+            if code == 0x01 or 0xD0 <= code <= 0xD8:
+                continue
+            length_raw = f.read(2)
+            if len(length_raw) < 2:
+                return None
+            (seg_len,) = struct.unpack(">H", length_raw)
+            if 0xC0 <= code <= 0xCF and code not in (0xC4, 0xC8, 0xCC):
+                body = f.read(5)
+                if len(body) < 5:
+                    return None
+                height, width = struct.unpack(">HH", body[1:5])
+                return width, height
+            f.seek(seg_len - 2, 1)
     return None
 
 
 def _normalize(pairs, classes: List[str], dest_dir: str, img_size: int) -> int:
-    """Normalize."""
+    """Re-encode every image into ``dest_dir`` in the ``img_size`` geometry and
+    write its label file (letterbox-transformed, or verbatim for native)."""
     count = 0
+    letterbox = img_size > 0
     for image_path, label_path in pairs:
         boxes = _parse_label_file(label_path, len(classes)) if label_path else []
         # Bound the decode before cv2.imread allocates the full raster.
@@ -346,8 +367,8 @@ def _normalize(pairs, classes: List[str], dest_dir: str, img_size: int) -> int:
                 f"Could not decode image '{os.path.basename(image_path)}'"
             )
         h, w = img.shape[:2]
-        boxed = letterbox_square(img, img_size)
-        ok, buf = cv2.imencode(".jpg", boxed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        stored = letterbox_square(img, img_size) if letterbox else img
+        ok, buf = cv2.imencode(".jpg", stored, [cv2.IMWRITE_JPEG_QUALITY, 90])
         if not ok:
             raise DatasetImportError(
                 f"Could not re-encode image '{os.path.basename(image_path)}'"
@@ -358,20 +379,28 @@ def _normalize(pairs, classes: List[str], dest_dir: str, img_size: int) -> int:
             f.write(buf.tobytes())
 
         if boxes:
-            # Same rounding as letterbox_square so boxes land exactly on the
-            # letterboxed pixels.
-            scale = min(img_size / w, img_size / h)
-            nw = max(1, int(round(w * scale)))
-            nh = max(1, int(round(h * scale)))
-            left = (img_size - nw) // 2
-            top = (img_size - nh) // 2
-            lines = []
-            for cls, cx, cy, bw, bh in boxes:
-                ncx = min(max((cx * nw + left) / img_size, 0.0), 1.0)
-                ncy = min(max((cy * nh + top) / img_size, 0.0), 1.0)
-                nbw = min(max(bw * nw / img_size, 0.0), 1.0)
-                nbh = min(max(bh * nh / img_size, 0.0), 1.0)
-                lines.append(f"{cls} {ncx:.6f} {ncy:.6f} {nbw:.6f} {nbh:.6f}")
+            if letterbox:
+                # Same rounding as letterbox_square so boxes land exactly on
+                # the letterboxed pixels.
+                scale = min(img_size / w, img_size / h)
+                nw = max(1, int(round(w * scale)))
+                nh = max(1, int(round(h * scale)))
+                left = (img_size - nw) // 2
+                top = (img_size - nh) // 2
+                lines = []
+                for cls, cx, cy, bw, bh in boxes:
+                    ncx = min(max((cx * nw + left) / img_size, 0.0), 1.0)
+                    ncy = min(max((cy * nh + top) / img_size, 0.0), 1.0)
+                    nbw = min(max(bw * nw / img_size, 0.0), 1.0)
+                    nbh = min(max(bh * nh / img_size, 0.0), 1.0)
+                    lines.append(f"{cls} {ncx:.6f} {ncy:.6f} {nbw:.6f} {nbh:.6f}")
+            else:
+                # Native storage keeps the source pixels, so the normalized
+                # coordinates already describe the stored image.
+                lines = [
+                    f"{cls} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}"
+                    for cls, cx, cy, bw, bh in boxes
+                ]
             with open(os.path.join(dest_dir, "labels", f"{image_id}.txt"), "w") as f:
                 f.write("\n".join(lines) + "\n")
         count += 1

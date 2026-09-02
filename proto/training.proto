@@ -8,8 +8,10 @@ package training;
 // the ultralytics training job. Heavy work (torch) always runs in child
 // processes; this service is only control-plane.
 //
-// Images are small (640x640 JPEG, well under the gRPC message limit), so
-// they travel as unary bytes instead of SHM/streaming.
+// Dataset images are stored in the geometry the dataset was created with
+// (TRAIN_DATASET_IMG_SIZE: a letterboxed square, 640 by default, or 0 for the
+// camera frame at native resolution). Either way a JPEG stays well under the
+// gRPC message limit, so images travel as unary bytes instead of SHM/streaming.
 
 message Empty {}
 
@@ -98,15 +100,17 @@ message ImageId {
 message ImageBlob {
   string image_id = 1;
   bytes jpeg = 2;
-  uint32 width = 3;
-  uint32 height = 4;
+  uint32 width = 3;                 // actual stored dimensions (the square for a
+  uint32 height = 4;                // letterboxed dataset, native otherwise); 0x0
+                                    // when the blob on disk is unreadable and the
+                                    // dataset stores native frames (size unknown)
 }
 
 // ── Labels (normalized YOLO format, matching the labels/*.txt rows) ──────────
 
 message Box {
   uint32 class_id = 1;
-  float cx = 2;                     // all normalized 0..1 on the 640x640 image
+  float cx = 2;                     // all normalized 0..1 on the stored image
   float cy = 3;
   float w = 4;
   float h = 5;
@@ -120,8 +124,9 @@ message Labels {
 // ── Pre-labeled image ingest (hub detection records → dataset) ───────────────
 
 // A pre-label carried by class name; coordinates are normalized corners on the
-// uploaded (pre-letterbox) image. The service maps them into the 640x640
-// letterbox space and resolves the class by name, appending it when missing.
+// uploaded image. The service maps them into the dataset's stored geometry
+// (letterbox space, or unchanged for a native-resolution dataset) and resolves
+// the class by name, appending it when missing.
 message NamedBox {
   string class_name = 1;
   float x1 = 2;                     // all normalized 0..1 on the uploaded image
@@ -131,11 +136,14 @@ message NamedBox {
 }
 
 // One externally captured image (e.g. a hub detection record's clean frame)
-// plus its pre-labels. The JPEG is letterboxed to 640x640 on ingest, like a
-// camera capture. Unary: snapshot JPEGs stay far below the gRPC message cap.
+// plus its pre-labels. On ingest the JPEG is stored in the dataset's geometry
+// like a camera capture (letterboxed, or kept at its own resolution); a
+// dataset recorded with a different geometry than the service's current
+// TRAIN_DATASET_IMG_SIZE is refused with FAILED_PRECONDITION. Unary: snapshot
+// JPEGs stay far below the gRPC message cap.
 message LabeledImageUpload {
   string dataset_id = 1;
-  bytes jpeg = 2;                   // original (non-letterboxed) JPEG
+  bytes jpeg = 2;                   // original JPEG, as captured
   repeated NamedBox boxes = 3;
 }
 

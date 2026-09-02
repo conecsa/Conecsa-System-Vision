@@ -164,6 +164,69 @@ class TestImportDatasetZip:
             import_dataset_zip(str(zip_path), str(tmp_path / "out"))
 
 
+class TestNativeGeometryImport:
+    """``img_size=0`` keeps the source resolution and the labels verbatim."""
+
+    def _make_zip(self, tmp_path, label="0 0.500000 0.250000 0.200000 0.100000\n"):
+        zip_path = tmp_path / "ds.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("data.yaml", "names: [cap]\n")
+            z.writestr("images/img1.jpg", _jpeg())  # 120×80 source
+            z.writestr("labels/img1.txt", label)
+        return str(zip_path)
+
+    def test_letterbox_import_transforms_labels(self, tmp_path):
+        dest = tmp_path / "out"
+        import_dataset_zip(self._make_zip(tmp_path), str(dest), img_size=640)
+        (image,) = (dest / "images").glob("*.jpg")
+        stored = cv2.imread(str(image))
+        assert stored is not None and stored.shape == (640, 640, 3)
+        (label,) = (dest / "labels").glob("*.txt")
+        # 120×80 content is centered vertically in the square, so cy moves.
+        parts = label.read_text().split()
+        assert float(parts[2]) != pytest.approx(0.25)
+
+    def test_native_import_keeps_dims_and_labels(self, tmp_path):
+        dest = tmp_path / "out"
+        import_dataset_zip(self._make_zip(tmp_path), str(dest), img_size=0)
+        (image,) = (dest / "images").glob("*.jpg")
+        stored = cv2.imread(str(image))
+        assert stored is not None and stored.shape == (80, 120, 3)
+        (label,) = (dest / "labels").glob("*.txt")
+        assert label.read_text() == "0 0.500000 0.250000 0.200000 0.100000\n"
+
+    def test_native_import_collapses_polygons_too(self, tmp_path):
+        dest = tmp_path / "out"
+        poly = "0 0.2 0.2 0.6 0.2 0.6 0.6 0.2 0.6\n"
+        import_dataset_zip(self._make_zip(tmp_path, label=poly), str(dest),
+                           img_size=0)
+        (label,) = (dest / "labels").glob("*.txt")
+        cls, cx, cy, w, h = label.read_text().split()
+        assert cls == "0"
+        assert [float(v) for v in (cx, cy, w, h)] == pytest.approx([0.4, 0.4, 0.4, 0.4])
+
+    def test_native_import_still_rejects_oversized_images(self, tmp_path,
+                                                          monkeypatch):
+        from service import dataset_import
+        monkeypatch.setattr(dataset_import, "_MAX_IMAGE_PIXELS", 1000)
+
+        def never(path):
+            raise AssertionError("cv2.imread must not run on a rejected image")
+
+        monkeypatch.setattr(dataset_import.cv2, "imread", never)
+        with pytest.raises(DatasetImportError, match="too large"):
+            import_dataset_zip(self._make_zip(tmp_path), str(tmp_path / "out"),
+                               img_size=0)
+
+    def test_native_import_still_rejects_undecodable_images(self, tmp_path):
+        zip_path = tmp_path / "ds.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            z.writestr("data.yaml", "names: [cap]\n")
+            z.writestr("images/img1.jpg", b"\xff\xd8not really a jpeg")
+        with pytest.raises(DatasetImportError, match="decode"):
+            import_dataset_zip(str(zip_path), str(tmp_path / "out"), img_size=0)
+
+
 class TestExtractionLimits:
     """REFACTORING.md M5: real (written-byte) limits, not ZIP-header claims."""
 
@@ -267,3 +330,13 @@ class TestImageDimensions:
         p = tmp_path / "img.webp"
         p.write_bytes(b"RIFF....WEBP")
         assert _image_dimensions(str(p)) is None
+
+    def test_from_bytes_matches_the_path_variant(self):
+        from service.dataset_import import image_dimensions_from_bytes
+        frame = np.full((80, 120, 3), 128, dtype=np.uint8)
+        for ext in (".png", ".jpg", ".bmp"):
+            ok, buf = cv2.imencode(ext, frame)
+            assert ok
+            assert image_dimensions_from_bytes(buf.tobytes()) == (120, 80), ext
+        assert image_dimensions_from_bytes(b"RIFF....WEBP") is None
+        assert image_dimensions_from_bytes(b"") is None

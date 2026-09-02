@@ -2,15 +2,31 @@
 
 On-disk layout (one instance per dataset, under the training-data volume):
 
-    {DATA_DIR}/datasets/{dataset_id}/images/{uuid}.jpg    640×640 letterboxed JPEG
+    {DATA_DIR}/datasets/{dataset_id}/images/{uuid}.jpg    JPEG in the dataset's geometry (below)
     {DATA_DIR}/datasets/{dataset_id}/labels/{uuid}.txt    YOLO rows "class cx cy w h" (absent/empty = unlabeled)
     {DATA_DIR}/datasets/{dataset_id}/classes.json         ["cap", ...]
-    {DATA_DIR}/datasets/{dataset_id}/meta.json            {"name", "created_at", "cover_image_id"}
+    {DATA_DIR}/datasets/{dataset_id}/meta.json            {"name", "created_at", "cover_image_id", "geometry"}
+
+``meta.json["geometry"]`` records how the images were stored — either
+``{"letterbox": 640}`` (every image letterboxed to that square, the historical
+format) or ``{"native": true}`` (the stereo-combined frame at its own
+resolution). Label coordinates are always normalized to the stored image. A
+legacy meta.json without the key means ``{"letterbox": 640}``; the key is
+backfilled the next time the meta is saved. Capture, ZIP import and hub
+ingest all produce the geometry selected by ``Config.DATASET_IMG_SIZE``, and
+``check_geometry`` refuses to add images to a dataset recorded with a
+different one, so a dataset never mixes formats.
 
 Instances are created and cached by the DatasetRegistry. ``build_split``
-materializes the ultralytics train/valid layout for one training job with
-symlinks (same volume) plus the data.yaml, mirroring the Roboflow export
-format of the reference dataset.
+materializes the ultralytics train/valid layout for one training job plus
+the data.yaml, mirroring the Roboflow export format of the reference
+dataset. By default every image is sliced into the square tile crops the
+inference-service runs on (``service.tile_split``, geometry from
+``conecsa_common.tiling``: tile side = the image's short side unless
+``TRAIN_TILE`` pins pixels) with the labels rewritten per tile, because a
+model only performs at the scale it was trained at; images the grid cannot
+slice (a legacy 640×640 letterboxed dataset, a square image) and every image
+when tiling is off are symlinked whole (same volume).
 """
 import json
 import logging
@@ -25,7 +41,24 @@ from typing import Dict, List, Optional
 
 from conecsa_common import atomic_write_bytes, atomic_write_json, read_json
 
+from .tile_split import TileSpec, TileSplitStats, materialize_tiles
+
 logger = logging.getLogger(__name__)
+
+GEOMETRY_FRAMES = "frames"
+
+
+def geometry_label(tile: TileSpec, stats: TileSplitStats) -> str:
+    """The training geometry a split actually produced, as the upload declares it.
+
+    ``"frames"`` when no crop was written (tiling off, or every image kept
+    whole), else ``"tiles:auto"`` / ``"tiles:<px>"`` — the vocabulary the
+    inference-service records in the model's settings sidecar and checks
+    against ``TILING_MODE`` on activation.
+    """
+    if tile is None or stats.tiles == 0:
+        return GEOMETRY_FRAMES
+    return f"tiles:{tile}"
 
 # Reject path tricks and characters that break ultralytics/data.yaml parsing.
 _NAME_SAFE = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-.")
@@ -58,6 +91,17 @@ class NamedBox:
 
 
 @dataclass
+class SplitResult:
+    """What ``build_split`` produced for one job."""
+
+    yaml_path: str
+    train_count: int          # files in train/images (crops or whole images)
+    valid_count: int          # files in valid/images
+    geometry: str             # "frames" | "tiles:auto" | "tiles:<px>" (effective)
+    stats: TileSplitStats
+
+
+@dataclass
 class ImageEntry:
     """A dataset image's metadata: id, capture time, and label state."""
 
@@ -70,6 +114,52 @@ class ImageEntry:
 
 class DatasetError(Exception):
     """Validation error surfaced to the client as Result(success=False)."""
+
+
+# Geometry recorded by datasets created before the key existed: every image
+# letterboxed to the 640×640 square.
+LEGACY_GEOMETRY: Dict = {"letterbox": 640}
+
+
+def geometry_for(dataset_img_size: int) -> Dict:
+    """The ``meta.json["geometry"]`` value ``Config.DATASET_IMG_SIZE`` produces.
+
+    ``0`` (or anything non-positive) stores frames at native resolution; any
+    positive value letterboxes every image to that square.
+    """
+    size = int(dataset_img_size)
+    return {"native": True} if size <= 0 else {"letterbox": size}
+
+
+def normalize_geometry(value) -> Dict:
+    """Coerce a stored ``geometry`` value into one of the two known shapes.
+
+    Missing/unrecognized values are the legacy 640×640 letterbox format, so an
+    old dataset keeps working without a migration step.
+    """
+    if isinstance(value, dict):
+        if value.get("native") is True:
+            return {"native": True}
+        try:
+            size = int(value.get("letterbox", 0))
+        except (TypeError, ValueError):
+            size = 0
+        if size > 0:
+            return {"letterbox": size}
+    return dict(LEGACY_GEOMETRY)
+
+
+def describe_geometry(geometry: Dict) -> str:
+    """Operator-readable description of a geometry dict (for error messages)."""
+    if geometry.get("native") is True:
+        return "native-resolution images"
+    size = int(geometry["letterbox"])
+    return f"{size}×{size} letterboxed images"
+
+
+def _geometry_env_value(geometry: Dict) -> str:
+    """The ``TRAIN_DATASET_IMG_SIZE`` value that reproduces ``geometry``."""
+    return "0" if geometry.get("native") is True else str(int(geometry["letterbox"]))
 
 
 def validate_dataset_name(name: str) -> str:
@@ -427,18 +517,54 @@ class DatasetService:
         return data if isinstance(data, dict) else {}
 
     def _save_meta(self, meta: Dict) -> None:
-        """Save meta (atomic + fsync; power-cut safe)."""
+        """Save meta (atomic + fsync; power-cut safe).
+
+        Backfills ``geometry`` for legacy datasets: a meta.json written before
+        the key existed describes 640×640 letterboxed images, and the first
+        save (rename, cover, replicate, ...) persists that explicitly.
+        """
+        meta["geometry"] = normalize_geometry(meta.get("geometry"))
         atomic_write_json(self._meta_file, meta, mode=0o644,
                           ensure_ascii=False)
 
-    def write_meta(self, name: str, created_at: Optional[float] = None) -> None:
-        """Write meta."""
+    def write_meta(self, name: str, created_at: Optional[float] = None,
+                   geometry: Optional[Dict] = None) -> None:
+        """Create or refresh the dataset's name/created_at.
+
+        ``geometry`` is recorded only when the dataset has none yet (a
+        dataset's storage format is fixed at creation); ``None`` means the
+        legacy 640×640 letterbox format, which is what the legacy-layout
+        migration relies on.
+        """
         with self._lock:
             meta = self._load_meta()
             meta.setdefault("cover_image_id", "")
+            if "geometry" not in meta:
+                meta["geometry"] = normalize_geometry(geometry)
             meta["name"] = name
             meta["created_at"] = created_at or meta.get("created_at") or time.time()
             self._save_meta(meta)
+
+    def geometry(self) -> Dict:
+        """How this dataset's images are stored (see the module docstring)."""
+        with self._lock:
+            return normalize_geometry(self._load_meta().get("geometry"))
+
+    def check_geometry(self, dataset_img_size: int) -> None:
+        """Refuse to add images in a geometry other than the recorded one.
+
+        Called before capture, hub ingest and any other path that stores a new
+        image; ``dataset_img_size`` is the current ``Config.DATASET_IMG_SIZE``.
+        """
+        stored = self.geometry()
+        if stored == geometry_for(dataset_img_size):
+            return
+        name = str(self._load_meta().get("name") or self.dataset_id)
+        raise DatasetError(
+            f"Dataset '{name}' stores {describe_geometry(stored)}; set "
+            f"TRAIN_DATASET_IMG_SIZE={_geometry_env_value(stored)} or create a "
+            f"new dataset"
+        )
 
     def rename(self, name: str) -> None:
         """Rename."""
@@ -493,6 +619,7 @@ class DatasetService:
                 "dataset_id": self.dataset_id,
                 "name": meta["name"],
                 "cover_image_id": meta["cover_image_id"],
+                "geometry": self.geometry(),
             }
 
     def validate_for_training(self) -> None:
@@ -550,12 +677,18 @@ class DatasetService:
 
     # ── split builder ─────────────────────────────────────────────────────────
 
-    def build_split(self, job_id: str, val_fraction: float = 0.2) -> str:
-        """Create the train/valid symlink layout + data.yaml for one job.
+    def build_split(self, job_id: str, val_fraction: float = 0.2, *,
+                    tile: TileSpec = None, overlap: float = 0.2,
+                    min_visible: float = 0.25) -> SplitResult:
+        """Create the train/valid layout + data.yaml for one job.
 
-        Returns the data.yaml path. Only labeled images participate —
-        ultralytics treats label-less images as background, which is rarely
-        what an operator collecting 20 captures intends.
+        Only labeled images participate — ultralytics treats label-less
+        images as background, which is rarely what an operator collecting 20
+        captures intends. With ``tile`` (``"auto"`` = the image's short side,
+        or pixels) each image of both splits is written as its tile crops with
+        per-tile labels (``service.tile_split``), so the validation metrics
+        describe the geometry the model is deployed in; ``tile=None`` and
+        images the grid cannot slice are symlinked whole.
         """
         with self._lock:
             entries = [e for e in self.list_images() if e.labeled]
@@ -576,16 +709,32 @@ class DatasetService:
                         len(shuffled) - 1)
             splits = {"valid": shuffled[:n_val], "train": shuffled[n_val:]}
 
+            stats = TileSplitStats()
+            counts: Dict[str, int] = {}
             for split, items in splits.items():
+                images_dir = os.path.join(root, split, "images")
+                labels_dir = os.path.join(root, split, "labels")
+                counts[split] = 0
                 for e in items:
+                    if tile is not None:
+                        rows = [(b.class_id, b.cx, b.cy, b.w, b.h)
+                                for b in self._read_boxes(e.image_id)]
+                        written, image_stats = materialize_tiles(
+                            self._image_path(e.image_id), rows, images_dir, labels_dir,
+                            e.image_id, tile=tile, overlap=overlap, min_visible=min_visible)
+                        stats.add(image_stats)
+                        if written:
+                            counts[split] += len(written)
+                            continue
                     os.symlink(
                         self._image_path(e.image_id),
-                        os.path.join(root, split, "images", f"{e.image_id}.jpg"),
+                        os.path.join(images_dir, f"{e.image_id}.jpg"),
                     )
                     os.symlink(
                         self._label_path(e.image_id),
-                        os.path.join(root, split, "labels", f"{e.image_id}.txt"),
+                        os.path.join(labels_dir, f"{e.image_id}.txt"),
                     )
+                    counts[split] += 1
 
             yaml_path = os.path.join(root, "data.yaml")
             names = ", ".join(f"'{c}'" for c in classes)
@@ -597,11 +746,16 @@ class DatasetService:
                     f"nc: {len(classes)}\n"
                     f"names: [{names}]\n"
                 )
+            geometry = geometry_label(tile, stats)
             logger.info(
-                "Built split for job %s: %d train / %d valid, %d classes",
+                "Built split for job %s: %d train / %d valid images, %d classes, "
+                "geometry %s (%d tiles, %d labels, %d background, %d fragment-only "
+                "tiles skipped, %d images kept whole)",
                 job_id, len(splits["train"]), len(splits["valid"]), len(classes),
+                geometry, stats.tiles, stats.boxes, stats.background, stats.skipped,
+                stats.whole,
             )
-            return yaml_path
+            return SplitResult(yaml_path, counts["train"], counts["valid"], geometry, stats)
 
 
 def validate_model_name(name: str) -> str:

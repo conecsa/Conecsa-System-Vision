@@ -16,7 +16,12 @@ from typing import Dict, List
 
 from .config import Config
 from .dataset_import import import_dataset_zip
-from .dataset_service import DatasetError, DatasetService, validate_dataset_name
+from .dataset_service import (
+    DatasetError,
+    DatasetService,
+    geometry_for,
+    validate_dataset_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +54,8 @@ class DatasetRegistry:
         dst = self._dataset_root(dataset_id)
         os.rename(legacy, dst)  # same volume: atomic; legacy gone afterwards
         ds = DatasetService(dataset_id, dst, self._config)
+        # No geometry argument: the legacy layout only ever held 640×640
+        # letterboxed images, whatever DATASET_IMG_SIZE says now.
         ds.write_meta("Default")
         logger.info("Migrated legacy dataset %s -> %s", legacy, dst)
 
@@ -109,13 +116,17 @@ class DatasetRegistry:
             raise DatasetError(f"Dataset '{dataset_id}' not found")
         return ds
 
+    def _geometry(self) -> dict:
+        """The storage geometry every new dataset is created with."""
+        return geometry_for(self._config.DATASET_IMG_SIZE)
+
     def create(self, name: str) -> dict:
-        """Create."""
+        """Create an empty dataset in the configured storage geometry."""
         name = validate_dataset_name(name)
         dataset_id = str(uuid.uuid4())
         root = self._dataset_root(dataset_id)
         ds = DatasetService(dataset_id, root, self._config)
-        ds.write_meta(name)
+        ds.write_meta(name, geometry=self._geometry())
         with self._lock:
             self._datasets[dataset_id] = ds
         self._publish()
@@ -179,7 +190,9 @@ class DatasetRegistry:
 
         The dataset is staged next to its final location and only becomes
         visible (registered) after an atomic rename, so a failed import never
-        leaves a half-imported dataset behind.
+        leaves a half-imported dataset behind. Images are normalized into the
+        configured storage geometry (``DATASET_IMG_SIZE``), which is recorded
+        in the new dataset's meta.json.
         """
         name = validate_dataset_name(name)
         dataset_id = str(uuid.uuid4())
@@ -187,7 +200,7 @@ class DatasetRegistry:
         try:
             import_dataset_zip(
                 zip_path, staging,
-                img_size=self._config.IMG_SIZE,
+                img_size=self._config.DATASET_IMG_SIZE,
                 max_total_mb=self._config.MAX_DATASET_UPLOAD_MB,
             )
             root = self._dataset_root(dataset_id)
@@ -196,7 +209,7 @@ class DatasetRegistry:
             shutil.rmtree(staging, ignore_errors=True)
             raise
         ds = DatasetService(dataset_id, root, self._config)
-        ds.write_meta(name, created_at=time.time())
+        ds.write_meta(name, created_at=time.time(), geometry=self._geometry())
         with self._lock:
             self._datasets[dataset_id] = ds
         self._publish()

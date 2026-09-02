@@ -147,17 +147,17 @@ class TestCompleteAdoptsTheHubClock:
         pem = serialization.Encoding.PEM
         return (leaf.public_bytes(pem).decode(), ca_cert.public_bytes(pem).decode())
 
-    def _post(self, client, monkeypatch, apply_result=True):
+    def _post(self, client, monkeypatch, outcome=enroll.clock.StepOutcome.APPLIED):
         """Run a full pairing, recording the order of the two side effects."""
         device_cert, ca_cert = self._hub_signed_cert()
         order = []
 
-        def fake_apply(raw, source, force=False):
+        def fake_step(raw, source, force=False):
             order.append(("clock", raw, source, force))
-            return apply_result
+            return outcome
 
         real_install = enroll._install_certs
-        monkeypatch.setattr(enroll.clock, "apply_hub_time", fake_apply)
+        monkeypatch.setattr(enroll.clock, "step_clock", fake_step)
         monkeypatch.setattr(enroll, "_install_certs",
                             lambda c, a: (order.append(("install",)), real_install(c, a)))
         resp = client.post("/enroll/complete", json={
@@ -178,22 +178,36 @@ class TestCompleteAdoptsTheHubClock:
         assert order[0][1:] == ("2026-08-03T10:00:00.000Z", "pairing", True)
         assert enroll.is_enrolled() is True
 
-    def test_a_failed_clock_step_aborts_the_pairing(self, client, monkeypatch):
+    @pytest.mark.parametrize("outcome", [enroll.clock.StepOutcome.REJECTED,
+                                         enroll.clock.StepOutcome.SKIPPED])
+    def test_a_refused_clock_step_aborts_the_pairing(self, client, monkeypatch, outcome):
         # Enrolling with a wrong clock strands the device (every later hub
         # call fails "certificate is not yet valid"), so a rejected time step
         # must install nothing and let the hub retry — the exact failure mode
         # gateway/clock.py's docstring calls fatal.
-        resp, order = self._post(client, monkeypatch, apply_result=False)
+        resp, order = self._post(client, monkeypatch, outcome=outcome)
         assert resp.status_code == 500
         assert [step[0] for step in order] == ["clock"], "no install on failure"
         assert enroll.is_enrolled() is False
+
+    def test_an_unreachable_hardware_agent_does_not_block_pairing(
+            self, client, monkeypatch):
+        # A development host runs the gateway without the Jetson-only `os`
+        # agent, so there is nothing to set the clock with — and nothing a
+        # retry could change. Pair anyway (logged), unlike a refused step.
+        resp, order = self._post(client, monkeypatch,
+                                 outcome=enroll.clock.StepOutcome.UNREACHABLE)
+        assert resp.status_code == 200
+        assert resp.get_json()["status"] == "enrolled"
+        assert [step[0] for step in order] == ["clock", "install"]
+        assert enroll.is_enrolled() is True
 
     def test_an_older_hub_omitting_hub_time_still_pairs(self, client, monkeypatch):
         # A hub too old to send hub_time cannot be asked to retry with data it
         # does not have: skip the sync (logged) instead of failing the pairing.
         device_cert, ca_cert = self._hub_signed_cert()
         seen = []
-        monkeypatch.setattr(enroll.clock, "apply_hub_time",
+        monkeypatch.setattr(enroll.clock, "step_clock",
                             lambda raw, source, force=False: seen.append(raw))
         resp = client.post("/enroll/complete", json={
             "device_cert": device_cert, "ca_cert": ca_cert})
@@ -299,8 +313,8 @@ class TestCompleteValidatesTheChain:
         from flask import Flask
         monkeypatch.setenv("DEVICE_ID", "cam-42")
         monkeypatch.delenv("DEVICE_PAIR_TOKEN", raising=False)
-        monkeypatch.setattr(enroll.clock, "apply_hub_time",
-                            lambda raw, source, force=False: True)
+        monkeypatch.setattr(enroll.clock, "step_clock",
+                            lambda raw, source, force=False: enroll.clock.StepOutcome.APPLIED)
         app = Flask(__name__)
         app.register_blueprint(enroll.enroll_bp)
         return app.test_client()

@@ -30,6 +30,13 @@ WORKDIR /app
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=America/Sao_Paulo
 
+# Fetch apt packages over https only — some networks drop plain http, which
+# would fail the build. The CUDA base ships ca-certificates, so TLS already
+# works here; the grep guard fails the build if a base-image update ever
+# reintroduces an http source this sed does not catch.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list \
+    && ! grep -rq 'http://' /etc/apt/sources.list /etc/apt/sources.list.d/
+
 RUN apt-get update && apt-get install -y --no-install-recommends --allow-change-held-packages \
         python3.10 \
         python3.10-dev \
@@ -126,8 +133,18 @@ RUN pip install --no-cache-dir --root-user-action=ignore \
     pip install --no-cache-dir --root-user-action=ignore \
         --extra-index-url "${JETSON_PIP_INDEX}" \
         pycuda==2024.1 "onnx>=1.21.0" && \
+    pip install --no-cache-dir --no-deps --root-user-action=ignore \
+        onnxslim==0.1.96 colorama==0.4.6 && \
     pip install --no-cache-dir --force-reinstall --root-user-action=ignore \
         numpy==1.26.4
+
+# onnxslim is baked in (--no-deps: onnx/sympy/packaging/ml_dtypes are already
+# present) so ultralytics' ONNX export (simplify=True) never needs its
+# AutoUpdate, and AutoUpdate itself is disabled: a runtime "pip install
+# onnxslim" during an on-device conversion re-resolves numpy to 2.x
+# (opencv-python 5 declares numpy>=2) and breaks pycuda in the TensorRT
+# workers ("initialization of _driver raised unreported exception").
+ENV YOLO_AUTOINSTALL=false
 
 # Shared data directories owned by this container; mounted as named volumes
 # by the services that consume them.

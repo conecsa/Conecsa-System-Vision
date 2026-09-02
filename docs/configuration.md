@@ -21,7 +21,14 @@ the code (what applies when the variable is unset); where the production
 |---|---|---|---|
 | `SHM_NAME` | `conecsa_frame_shm` | — | Camera SHM segment name (must match webcam-server) |
 | `INFERENCE_GRPC_LISTEN` | `0.0.0.0:50061` | — | gRPC control server bind address |
-| `PROCESSING_DECODE_SCALE` | `2` | — | Reduced-scale JPEG decode for inference/overlay (1 = full, 2 = half, 4 = quarter) |
+| `PROCESSING_DECODE_SCALE` | `1` | — | Reduced-scale JPEG decode for inference/overlay (1 = full, 2 = half, 4 = quarter). Must stay `1` for the default tiled inference (`TILING_MODE=grid`) and for models trained above 640; `2` is the cheaper choice only with `TILING_MODE=off` and a 640 model trained on whole frames |
+| `PROCESSED_OUTPUT_SCALE` | `1` | — | Downscale factor (`1`, `2`, `4`) applied to the drawn frame before JPEG encoding/publishing; keeps the single-thread encode stage and the MJPEG stream small when the decode scale is `1` |
+| `INFER_LETTERBOX_PAD` | `0` | — | Letterbox pad value (0–255) for the model input; training letterboxes with `114` |
+| `INFER_RESIZE_INTERP` | `nearest` | — | Resize interpolation for the model input (`nearest`, `linear`, `area`); training uses linear |
+| `TILING_MODE` | `grid` | — | SAHI-style tiled inference. `grid` (default) slices the decoded frame into overlapping square tiles, runs one inference per tile and merges the shifted boxes, so small objects reach the model near native scale; `off` keeps the single full-frame letterboxed inference for models trained on whole frames. A model only performs at the geometry it was trained at: pair `grid` with a model trained by the training-service's default `TRAIN_TILE=auto` (the model's settings sidecar records its geometry and activation logs a warning on a mismatch). Requires `PROCESSING_DECODE_SCALE=1` so tiles are cut from native pixels |
+| `TILING_TILE` | `auto` | — | Square tile side for `TILING_MODE=grid`: `auto` = the frame's short side, resolved per frame, so any 16:9 camera gives two columns (K=2) whatever its resolution (measured on a 1280×720 frame: two 720 px tiles); a pixel value pins the side and must then match the `TRAIN_TILE` the model was trained with |
+| `TILING_OVERLAP` | `0.2` | — | Fraction of `TILING_TILE` that adjacent tiles overlap (`0 ≤ f < 1`); the band must exceed the largest object the tiles are meant to catch |
+| `TILING_MERGE_IOU` | `0.5` | — | IoU above which boxes from different tiles are merged as one object (class-aware greedy NMS, `conecsa_common.tiling.merge_tiles`) |
 | `STEREO_COMBINE` | `none` | `none` | Stereo combine mode — split the side-by-side frame and blend both eyes into one image. Starts off: it would tear an ordinary camera's picture in half, so the Camera Settings toggle (shown only for a 3D camera) enables it and the per-model settings snapshot restores it |
 | `STEREO_BLEND_ALPHA` | `0.5` | — | Blend factor for `STEREO_COMBINE=blend` |
 | `CAPTURE_AUTO_EXPOSURE` | `false` | — | Camera auto-exposure |
@@ -29,7 +36,7 @@ the code (what applies when the variable is unset); where the production
 | `CAPTURE_RGB_RED` / `_GREEN` / `_BLUE` | `128` | — | Per-channel white-balance gains |
 | `CAPTURE_GAMMA` | `100` | — | Camera gamma |
 | `CAPTURE_GAIN` | `0` | — | Camera gain |
-| `TENSORRT_WORKSPACE_MB` | `256` | `192` | TensorRT builder workspace (MB) for `.pt → .engine` conversion |
+| `TENSORRT_WORKSPACE_MB` | `256` | `192` | TensorRT builder workspace (MB) for `.pt → .engine` conversion; 1280 engines usually need `512` (the builder retries 256/192/128) |
 | `TENSORRT_AUTO_REBUILD_ENGINE` | `1` | — | Rebuilds the engine when the model changes |
 | `TENSORRT_CONTEXTS` | `1` | `2` | Parallel TensorRT contexts / pipeline lanes (~1.8× GPU scaling at 2) |
 | `CUDA_VISIBLE_DEVICES` | `0` | — | GPU visible to CUDA |
@@ -70,6 +77,12 @@ the code (what applies when the variable is unset); where the production
 | `STEREO_COMBINE` | `none` | `none` | Stereo combine mode — compose sets inference-service to the same value so captured images match the live detector geometry (there is no runtime sync; the live inference config wins when reachable) |
 | `STEREO_BLEND_ALPHA` | `0.5` | — | Blend factor for `STEREO_COMBINE=blend` |
 | `GATEWAY_ADDR` | `http://api-gateway:5000` | — | Gateway URL used to hand `best.pt` back through the model-upload route |
+| `TRAIN_IMG_SIZE` | `640` | — | Model input size (`imgsz`) for training and for the exported ONNX/engine. 640 is the production default (a plain 1280 engine runs well below the live-pipeline fps floor on the Orin Nano); larger values train on real pixels only because datasets are stored at native resolution |
+| `TRAIN_DATASET_IMG_SIZE` | `0` | `0` | Dataset storage geometry. `0` (default) stores the stereo-combined camera frame at native resolution and leaves letterboxing to ultralytics at train time; a value > 0 reproduces the legacy format (images letterboxed to that square, historically `640`). Recorded per dataset in `meta.json`; adding images to a dataset created with a different geometry is refused |
+| `TRAIN_TILE` | `auto` | — | Training geometry. `auto` (default) slices every image of the train/valid split into the square tile crops the inference-service runs on — side = the image's short side, the same `conecsa_common.tiling` grid as `TILING_TILE=auto` — and rewrites the labels per tile, so the model is trained at the scale it is deployed at; a pixel value mirrors an explicit `TILING_TILE`; `off` trains on whole frames for a device running `TILING_MODE=off`. Images the grid cannot slice (a legacy 640×640 letterboxed dataset) stay whole. The effective geometry (`frames`, `tiles:auto`, `tiles:<px>`) is declared on the model upload and recorded in the model's settings sidecar |
+| `TRAIN_TILE_OVERLAP` | `0.2` | — | Overlap fraction between adjacent training tiles (`0 ≤ f < 1`); mirrors `TILING_OVERLAP` |
+| `TRAIN_TILE_MIN_VISIBLE` | `0.25` | — | A box is kept in a tile when at least this fraction of its area lies inside it (`0 < f ≤ 1`); a tile whose only content was a smaller fragment is skipped rather than taught as background |
+| `TRAIN_OVERRIDES` | _(empty)_ | — | Space-separated allowlisted ultralytics `model.train` hyperparameters, e.g. `freeze=10 lr0=0.002 close_mosaic=5` (allowlist in `training-service/service/train_overrides.py`) |
 | `TRAIN_BATCH` | `4` | — | YOLO training batch size (sized for the Orin Nano 8 GB) |
 | `TRAIN_WORKERS` | `0` | — | DataLoader workers (0 = single-process; the small shared `/dev/shm` cannot back worker tensors) |
 | `TRAIN_STALL_TIMEOUT_SEC` | `3600` | — | Liveness watchdog — kills the trainer after this long with **no** output (a hang), not a cap on total duration |

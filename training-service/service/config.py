@@ -1,5 +1,35 @@
 """Environment-driven configuration for the training-service."""
 import os
+from typing import Optional, Union
+
+TileSpec = Union[None, str, int]
+"""Training tile knob: ``None`` = whole frames, ``"auto"`` = the image's short side, ``int`` = px."""
+
+
+def parse_train_tile(raw: Optional[str]) -> TileSpec:
+    """Normalise ``TRAIN_TILE``: ``auto`` (default) | ``off``/``0`` | ``<px>``.
+
+    Anything unparseable falls back to ``auto`` rather than silently
+    disabling the crop — the product default is the tiled geometry.
+    """
+    value = (raw or "").strip().lower()
+    if value in ("off", "0", "none", "false", "no"):
+        return None
+    if value in ("", "auto"):
+        return "auto"
+    try:
+        pixels = int(value)
+    except ValueError:
+        return "auto"
+    return pixels if pixels > 0 else "auto"
+
+
+def _env_fraction(name: str, default: float, *, low_inclusive: bool, high_inclusive: bool) -> float:
+    """A float env var restricted to the unit interval; out of range ⇒ *default*."""
+    value = _env_float(name, default)
+    above_low = value >= 0.0 if low_inclusive else value > 0.0
+    below_high = value <= 1.0 if high_inclusive else value < 1.0
+    return value if above_low and below_high else default
 
 
 def _env_float(name: str, default: float) -> float:
@@ -48,7 +78,37 @@ class Config:
     WEIGHTS_TTL_SEC = _env_int("TRAINING_WEIGHTS_TTL_SEC", 86400)
 
     # Training defaults (sized for the Jetson Orin Nano 8GB)
-    IMG_SIZE = 640
+    # Model input size passed to the trainer (``--imgsz``) and to the .pt upload
+    # so the exported ONNX/engine matches the trained resolution. 640 is the
+    # production default; larger values need a native-resolution dataset.
+    IMG_SIZE = _env_int("TRAIN_IMG_SIZE", 640)
+    # Dataset storage geometry. 0 (the default) stores the
+    # stereo-combined frame at its native resolution and leaves letterboxing to
+    # ultralytics at train time — real pixels for any imgsz, and a single
+    # dataset serves any imgsz and the tile crops alike. A value > 0 reproduces
+    # the legacy format: images letterboxed to that square (640) on
+    # capture/import/hub ingest. Recorded per dataset in meta.json so
+    # geometries are never mixed inside one dataset.
+    DATASET_IMG_SIZE = _env_int("TRAIN_DATASET_IMG_SIZE", 0)
+    # Extra ultralytics ``model.train`` hyperparameters (space-separated
+    # ``key=value``, allowlisted in service/train_overrides.py), e.g.
+    # ``freeze=10 lr0=0.002 close_mosaic=5``. Empty = ultralytics defaults.
+    TRAIN_OVERRIDES = os.environ.get("TRAIN_OVERRIDES", "")
+    # Training geometry. The inference-service slices every frame into square
+    # tiles (TILING_MODE=grid, tile side = the frame's short side by default)
+    # and a model only performs at the scale it was trained at, so the split
+    # builder crops each dataset image with the same grid
+    # (conecsa_common.tiling) and rewrites the labels per tile. ``auto``
+    # (default) mirrors the inference default on any camera resolution; a
+    # pixel value mirrors an explicit TILING_TILE; ``off`` trains on whole
+    # frames for a device running TILING_MODE=off. Overlap mirrors
+    # TILING_OVERLAP; a box survives in a tile when at least MIN_VISIBLE of
+    # its area lies inside it.
+    TRAIN_TILE: TileSpec = parse_train_tile(os.environ.get("TRAIN_TILE", "auto"))
+    TRAIN_TILE_OVERLAP = _env_fraction("TRAIN_TILE_OVERLAP", 0.2,
+                                       low_inclusive=True, high_inclusive=False)
+    TRAIN_TILE_MIN_VISIBLE = _env_fraction("TRAIN_TILE_MIN_VISIBLE", 0.25,
+                                           low_inclusive=False, high_inclusive=True)
     MIN_IMAGES = _env_int("TRAIN_MIN_IMAGES", 20)
     DEFAULT_EPOCHS = _env_int("TRAIN_DEFAULT_EPOCHS", 50)
     DEFAULT_PATIENCE = _env_int("TRAIN_DEFAULT_PATIENCE", 50)

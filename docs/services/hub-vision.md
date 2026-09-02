@@ -79,7 +79,10 @@ The hub therefore relays its own wall clock on the two paths that work:
 
 - **at pairing**, in the `/enroll/complete` body — the one moment a hub can reach
   a device whose clock is wrong. The device adopts it *before* installing the
-  certificates, so the flip into enforcing mode already has a valid clock;
+  certificates, so the flip into enforcing mode already has a valid clock. A
+  step the device's agent *refuses* aborts the pairing with nothing installed
+  (the hub retries); a host with no hardware agent at all — the x86 development
+  stack — pairs anyway, with a warning in the gateway log;
 - **afterwards**, in the `X-Conecsa-Hub-Time` header on every status poll. The
   device only honours it on a request the nginx terminator verified, so no other
   container on its compose network can move the clock.

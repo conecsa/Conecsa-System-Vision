@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 
 # Map PROCESSING_DECODE_SCALE -> OpenCV reduced-decode flag. Decoding the JPEG
 # at a reduced scale (scaled IDCT inside libjpeg-turbo) is several times cheaper
-# than a full-resolution decode. The detector resizes to ~640 internally, so
-# there is no accuracy cost, and it decouples inference/overlay cost from the
-# user-selected capture resolution.
+# than a full-resolution decode. The default is 1 (full resolution) because the
+# tiled inference path (TILING_MODE=grid, the default) cuts its tiles from
+# native pixels; 2 is the right choice for TILING_MODE=off with a 640 model,
+# which resizes to 640 internally anyway.
 _REDUCED_DECODE_FLAGS = {
     1: cv2.IMREAD_COLOR,
     2: cv2.IMREAD_REDUCED_COLOR_2,
@@ -70,8 +71,8 @@ class FrameCodecService:
 
     def __init__(self):
         # Reduced-scale decode factor for the processed stream / inference path.
-        # 1 = full res, 2 = half, 4 = quarter, 8 = eighth.
-        self._decode_scale = int(os.environ.get("PROCESSING_DECODE_SCALE", 2))
+        # 1 = full res (default; tiles need native pixels), 2 = half, 4 = quarter, 8 = eighth.
+        self._decode_scale = int(os.environ.get("PROCESSING_DECODE_SCALE", 1))
 
         # Stereo combine: a side-by-side (left|right) frame is split in half and
         # the two eyes are alpha-blended into a single image, used for both the

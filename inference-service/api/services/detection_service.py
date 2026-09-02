@@ -170,9 +170,9 @@ class DetectionService:
     def prepare(self, frame: np.ndarray):
         """Stage A: snapshot detection areas + preprocess.
 
-        Returns ``(input_data, meta)`` where ``meta`` is the
-        ``(scale, border_top, actual_input_size)`` tuple needed by ``finish``,
-        or ``None`` if detection is not ready.
+        Returns ``(inputs, metas)`` — parallel lists holding one preprocessed
+        tensor and one ``TileMeta`` per tile (a single full-frame entry when
+        ``TILING_MODE=off``) — or ``None`` if detection is not ready.
         """
         if not self.is_running or not self.model_manager or not self.yolo_detector:
             return None
@@ -182,29 +182,50 @@ class DetectionService:
         if self.area_service is not None:
             self.yolo_detector.set_areas(self.area_service.list())
 
-        input_data, scale, border_top, actual_input_size = self.model_manager.preprocess_image(frame)
-        return input_data, (scale, border_top, actual_input_size)
+        return self.model_manager.preprocess_tiles(frame)
 
-    def infer(self, input_data):
-        """Stage B: run inference. Returns ``(output_data, inference_time)``.
+    def infer(self, inputs):
+        """Stage B: run inference on each prepared tensor, in order.
 
-        Only reachable once ``prepare`` returned a non-None result, which already
-        implies a model manager; the guard exists so a stopped detector fails loudly
+        Returns ``(outputs, inference_time)`` — one model output per input and
+        the summed GPU seconds. Tiling off means a single entry; with
+        ``TILING_MODE=grid`` the tiles of one frame run sequentially on this
+        lane while other lanes interleave on the context pool. Only reachable
+        once ``prepare`` returned a non-None result, which already implies a
+        model manager; the guard exists so a stopped detector fails loudly
         instead of raising AttributeError on None.
         """
         model_manager = self.model_manager
         if model_manager is None:
             raise RuntimeError("Detection is not running: no model manager")
-        return model_manager.run_inference(input_data)
+        outputs = []
+        total_time = 0.0
+        for input_data in inputs:
+            output_data, seconds = model_manager.run_inference(input_data)
+            outputs.append(output_data)
+            total_time += seconds
+        return outputs, total_time
 
-    def finish(self, output_data, frame: np.ndarray, meta, inference_time: float = 0.0) -> Optional[DetectionResult]:
-        """Stage C: postprocess detections + draw overlay. Returns DetectionResult."""
+    def finish(self, outputs, frame: np.ndarray, metas, inference_time: float = 0.0) -> Optional[DetectionResult]:
+        """Stage C: postprocess detections + draw overlay. Returns DetectionResult.
+
+        ``outputs``/``metas`` are the parallel lists produced by ``infer`` and
+        ``prepare``. With tiling off the single entry goes through the exact
+        pre-tiling decode path; with ``TILING_MODE=grid`` the detector decodes
+        each tile and merges duplicates across the overlap bands.
+        """
         if not self.yolo_detector:
             return None
-        scale, border_top, actual_input_size = meta
-        processed_frame, num_detections, detection_objects = self.yolo_detector.process_detections(
-            output_data, frame, scale=scale, border_top=border_top, actual_input_size=actual_input_size
-        )
+        if self.model_manager is not None and self.model_manager.tiling_active:
+            processed_frame, num_detections, detection_objects = self.yolo_detector.process_tiled_detections(
+                outputs, frame, metas
+            )
+        else:
+            meta = metas[0]
+            processed_frame, num_detections, detection_objects = self.yolo_detector.process_detections(
+                outputs[0], frame, scale=meta.scale, border_top=meta.border_top,
+                actual_input_size=meta.input_size,
+            )
         result = DetectionResult(
             detections=detection_objects,
             processed_image=processed_frame,

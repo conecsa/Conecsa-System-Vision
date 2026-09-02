@@ -30,6 +30,30 @@ logger = logging.getLogger(__name__)
 # env-tunable and must not change how the output layout is classified.
 _E2E_MAX_DET = 300
 
+DEFAULT_TILING_MERGE_IOU = 0.5
+
+
+def tiling_merge_iou_from_env() -> float:
+    """Cross-tile merge IoU from ``TILING_MERGE_IOU`` (0..1, default 0.5).
+
+    Only consulted on the tiled path (``TILING_MODE=grid``): boxes from
+    different tiles whose IoU exceeds this are treated as duplicates of one
+    object seen through an overlap band. Invalid values fall back to the
+    default.
+    """
+    raw = os.environ.get("TILING_MERGE_IOU", str(DEFAULT_TILING_MERGE_IOU)).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning("TILING_MERGE_IOU=%r is not a number; using %s",
+                       raw, DEFAULT_TILING_MERGE_IOU)
+        return DEFAULT_TILING_MERGE_IOU
+    if not 0.0 <= value <= 1.0:
+        logger.warning("TILING_MERGE_IOU=%s out of 0..1; using %s",
+                       value, DEFAULT_TILING_MERGE_IOU)
+        return DEFAULT_TILING_MERGE_IOU
+    return value
+
 
 class YOLODetector:
     """Class to process detections from custom YOLO model."""
@@ -42,6 +66,7 @@ class YOLODetector:
         self.output_format: Optional[str] = None  # Detected from model output shape
         self.max_candidates = int(os.environ.get("YOLO_MAX_CANDIDATES", "300"))
         self.nms_top_k = int(os.environ.get("YOLO_NMS_TOPK", "120"))
+        self.tile_merge_iou = tiling_merge_iou_from_env()
         # Per-frame snapshot of active detection areas (normalized [0,1]).
         # Updated by DetectionService.prepare before each inference.
         self._areas = []
@@ -345,13 +370,40 @@ class YOLODetector:
         img = image_original.copy()
         frame_h, frame_w = img.shape[:2]
 
+        boxes_for_nms, confidences_for_nms, class_ids_for_nms = self._e2e_candidates(
+            detections, frame_w, frame_h, scale, border_top, actual_input_size,
+        )
+        if not boxes_for_nms:
+            return self._draw_areas(img), 0, []
+
+        detection_objects = self._suppress_and_build(
+            boxes_for_nms, confidences_for_nms, class_ids_for_nms
+        )
+        detection_objects = self._filter_detections_by_areas(detection_objects, frame_w, frame_h)
+
+        for det in detection_objects:
+            x1, y1, x2, y2 = det.bbox
+            self._draw_detection_box(img, x1, y1, x2, y2, det.class_id, det.confidence)
+
+        return self._draw_areas(img), len(detection_objects), detection_objects
+
+    def _e2e_candidates(self, detections, frame_w, frame_h,
+                        scale=1.0, border_top=0, actual_input_size=None):
+        """Decode e2e rows into clamped pixel-corner candidate lists.
+
+        ``frame_w``/``frame_h`` are the dimensions of the image the model
+        input was letterboxed from — the full frame on the plain path, the
+        tile crop on the tiled path (whose caller then shifts the corners by
+        the tile origin). Returns the parallel lists
+        ``(boxes, confidences, class_ids)`` ready for NMS.
+        """
         boxes = detections[:, :4]
         confidences = detections[:, 4]
         class_ids = detections[:, 5].astype(int)
 
         valid = self._confidence_mask(confidences)
         if not np.any(valid):
-            return self._draw_areas(img), 0, []
+            return [], [], []
         boxes = boxes[valid]
         confidences = confidences[valid]
         class_ids = class_ids[valid]
@@ -404,8 +456,78 @@ class YOLODetector:
                 confidences_for_nms.append(float(confidence))
                 class_ids_for_nms.append(int(class_id))
 
-        if not boxes_for_nms:
+        return boxes_for_nms, confidences_for_nms, class_ids_for_nms
+
+    def process_tiled_detections(self, outputs, image_original, metas):
+        """Decode per-tile outputs, shift into frame space, merge and draw.
+
+        The tiled counterpart of :meth:`process_detections`: one model output
+        per tile, with ``metas`` carrying each tile's letterbox mapping and
+        origin (``TileMeta`` in ``model_manager``). Candidates are decoded
+        against the tile's own geometry, shifted by the tile origin, merged
+        with the shared class-aware NMS from ``conecsa_common.tiling`` and
+        then handed to the
+        ordinary overlay-threshold NMS, area filter and drawing — so
+        everything downstream of the merge behaves as on the plain path.
+        """
+        # Imported lazily: only a base image built with this feature ships
+        # conecsa_common.tiling, and the off path must not depend on it.
+        from conecsa_common.tiling import merge_tiles
+
+        img = image_original.copy()
+        frame_h, frame_w = img.shape[:2]
+
+        all_boxes = []
+        all_confidences = []
+        all_class_ids = []
+        for output, meta in zip(outputs, metas, strict=True):
+            rows = self._normalize_output(output)
+            if rows is None:
+                continue
+            if self.output_format == "end_to_end":
+                boxes, confidences, class_ids = self._e2e_candidates(
+                    rows, meta.width, meta.height,
+                    meta.scale, meta.border_top, meta.input_size,
+                )
+            else:
+                class_id_arr, confidence_arr = self._extract_scores(rows)
+                valid = self._confidence_mask(confidence_arr)
+                if not np.any(valid):
+                    continue
+                valid_boxes, valid_confidences, valid_class_ids = self._top_candidates(
+                    rows[:, :4][valid], confidence_arr[valid], class_id_arr[valid],
+                )
+                coord_sample_max = float(np.max(np.abs(valid_boxes))) if valid_boxes.size > 0 else 0.0
+                boxes, confidences, class_ids = self._decode_candidate_boxes(
+                    valid_boxes, valid_confidences, valid_class_ids,
+                    meta.width, meta.height, coord_sample_max <= 2.0,
+                    meta.scale, meta.border_top, meta.input_size,
+                )
+            for (x1, y1, x2, y2), confidence, class_id in zip(
+                    boxes, confidences, class_ids, strict=True):
+                all_boxes.append([
+                    max(0, min(x1 + meta.ox, frame_w)),
+                    max(0, min(y1 + meta.oy, frame_h)),
+                    max(0, min(x2 + meta.ox, frame_w)),
+                    max(0, min(y2 + meta.oy, frame_h)),
+                ])
+                all_confidences.append(confidence)
+                all_class_ids.append(class_id)
+
+        if not all_boxes:
             return self._draw_areas(img), 0, []
+
+        # Cross-tile duplicate removal in the overlap bands (class-aware);
+        # _suppress_and_build then applies the user-adjustable overlay NMS.
+        keep = merge_tiles(
+            np.asarray(all_boxes, dtype=np.float64),
+            np.asarray(all_confidences, dtype=np.float64),
+            np.asarray(all_class_ids),
+            iou_threshold=self.tile_merge_iou,
+        )
+        boxes_for_nms = [all_boxes[i] for i in keep]
+        confidences_for_nms = [all_confidences[i] for i in keep]
+        class_ids_for_nms = [all_class_ids[i] for i in keep]
 
         detection_objects = self._suppress_and_build(
             boxes_for_nms, confidences_for_nms, class_ids_for_nms

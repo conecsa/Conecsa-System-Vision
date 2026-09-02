@@ -35,6 +35,7 @@ class TestConversionJobDefaults:
         assert job.progress == 0
         assert job.error is None
         assert job.engine_filename is None
+        assert job.imgsz is None
         assert isinstance(job.started_at, float)
         assert isinstance(job.started_monotonic, float)
         assert job.elapsed_secs >= 0.0
@@ -57,9 +58,18 @@ class TestToDict:
             "message",
             "error",
             "engine_filename",
+            "imgsz",
+            "train_geometry",
             "started_at",
             "elapsed_secs",
         }
+
+    def test_imgsz_is_serialized(self):
+        pt_job = ConversionJob("j1", "m.pt", "/m.pt", "/m.onnx", "/m.engine", imgsz=1280)
+        assert ConversionService.to_dict(pt_job)["imgsz"] == 1280
+        # .onnx -> .engine-only jobs have no export size of their own.
+        onnx_job = ConversionJob("j2", "m.onnx", "", "/m.onnx", "/m.engine")
+        assert ConversionService.to_dict(onnx_job)["imgsz"] is None
 
 
 class TestElapsedSecs:
@@ -91,6 +101,32 @@ class TestRemoveFileSafe:
     def test_missing_file_is_noop(self, tmp_path):
         # Should not raise.
         _remove_file_safe(str(tmp_path / "absent.onnx"))
+
+
+class TestStartPtConversion:
+    def test_records_imgsz_on_the_job(self, monkeypatch, tmp_path):
+        svc = ConversionService()
+        # Keep the worker thread from touching torch/TensorRT.
+        monkeypatch.setattr(ConversionService, "_run_job", lambda self, job_id: None)
+        job = svc.start_pt_conversion(str(tmp_path / "m.pt"), "m.pt", str(tmp_path), imgsz=1280)
+        assert job.imgsz == 1280
+        assert svc.get_job(job.job_id) is job
+
+    def test_records_the_declared_training_geometry(self, monkeypatch, tmp_path):
+        svc = ConversionService()
+        monkeypatch.setattr(ConversionService, "_run_job", lambda self, job_id: None)
+        job = svc.start_pt_conversion(str(tmp_path / "m.pt"), "m.pt", str(tmp_path),
+                                      imgsz=640, train_geometry="tiles:auto")
+        assert job.train_geometry == "tiles:auto"
+        assert svc.to_dict(job)["train_geometry"] == "tiles:auto"
+        plain = svc.start_pt_conversion(str(tmp_path / "n.pt"), "n.pt", str(tmp_path))
+        assert plain.train_geometry is None
+
+    def test_onnx_only_job_has_no_imgsz(self, monkeypatch, tmp_path):
+        svc = ConversionService()
+        monkeypatch.setattr(ConversionService, "_run_job", lambda self, job_id: None)
+        job = svc.start_onnx_conversion(str(tmp_path / "m.onnx"), "m.onnx", str(tmp_path))
+        assert job.imgsz is None
 
 
 class TestJobRegistry:

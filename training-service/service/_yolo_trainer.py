@@ -21,7 +21,8 @@ Usage:
     python3 -m service._yolo_trainer --data .../data.yaml \\
         --weights /app/training-service/assets/yolo26s.pt \\
         --epochs 50 --batch 4 --imgsz 640 --workers 0 \\
-        --project /data/training/runs --name {job_id}
+        --project /data/training/runs --name {job_id} \\
+        [--override freeze=10 --override lr0=0.002]
 
 NOTE on DataLoader workers: this container shares webcam-server's IPC namespace
 (``ipc: service:webcam-server``) so it can read the camera SHM ring, which means
@@ -37,6 +38,8 @@ import logging
 import os
 import signal
 import sys
+
+from .train_overrides import parse_overrides
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +74,12 @@ def main() -> None:
     parser.add_argument("--patience", type=int, default=50,
                         help="epochs without improvement before early stop")
     parser.add_argument("--no-amp", action="store_true")
+    parser.add_argument("--override", action="append", default=[], metavar="KEY=VALUE",
+                        help="extra allowlisted ultralytics train() hyperparameter "
+                             "(repeatable; see service.train_overrides)")
     args = parser.parse_args()
+    # Parsed before the heavy imports so a bad recipe fails in milliseconds.
+    overrides = parse_overrides(" ".join(args.override))
 
     # Parent sends SIGUSR1 to request a graceful early stop (keep best.pt).
     def _on_sigusr1(_signum, _frame) -> None:
@@ -141,6 +149,7 @@ def main() -> None:
             project=args.project,
             name=args.name,
             verbose=False,
+            **overrides,
         )
 
         best = os.path.join(str(getattr(results, "save_dir", "")), "weights", "best.pt")

@@ -1,7 +1,15 @@
-"""Unit tests for the pure letterbox helpers."""
+"""Unit tests for the letterbox helpers and the dataset-geometry capture path."""
+from types import SimpleNamespace
+
+import cv2
 import numpy as np
 import pytest
-from service.capture_service import corners_to_letterbox, letterbox_square
+from service.capture_service import (
+    CaptureService,
+    corners_to_letterbox,
+    letterbox_square,
+)
+from service.training_grpc import _corners_to_native
 
 _PAD = 114
 
@@ -90,3 +98,58 @@ class TestCornersToLetterbox:
         cx, cy, w, h = corners_to_letterbox(-0.1, -0.1, 1.1, 1.1, 100, 100, 640)
         for v in (cx, cy, w, h):
             assert 0.0 <= v <= 1.0
+
+
+def _capture_service(monkeypatch, frame, dataset_img_size):
+    """A CaptureService whose camera read is stubbed to return ``frame``."""
+    svc = CaptureService.__new__(CaptureService)  # skip the SHM ring attach
+    monkeypatch.setattr(svc, "_config", SimpleNamespace(DATASET_IMG_SIZE=dataset_img_size),
+                        raising=False)
+    monkeypatch.setattr(svc, "grab_combined", lambda: frame)
+    return svc
+
+
+def _decode(jpeg):
+    img = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+    assert img is not None
+    return img
+
+
+class TestCaptureDatasetImage:
+    def test_letterbox_mode_stores_the_square(self, monkeypatch):
+        frame = np.full((720, 1280, 3), 200, dtype=np.uint8)
+        svc = _capture_service(monkeypatch, frame, 640)
+        jpeg = svc.capture_dataset_image()
+        assert jpeg is not None
+        out = _decode(jpeg)
+        assert out.shape == (640, 640, 3)
+        # 16:9 content in a square: top and bottom rows are gray padding.
+        assert abs(int(out[0, 0, 0]) - _PAD) <= 2
+        assert abs(int(out[-1, -1, 0]) - _PAD) <= 2
+
+    def test_native_mode_keeps_the_source_shape_without_border(self, monkeypatch):
+        frame = np.full((720, 1280, 3), 200, dtype=np.uint8)
+        svc = _capture_service(monkeypatch, frame, 0)
+        jpeg = svc.capture_dataset_image()
+        assert jpeg is not None
+        out = _decode(jpeg)
+        assert out.shape == (720, 1280, 3)
+        # No padding anywhere: every pixel is (close to) the source value.
+        assert int(out.min()) >= 195 and int(out.max()) <= 205
+
+    def test_no_frame_returns_none(self, monkeypatch):
+        svc = _capture_service(monkeypatch, None, 0)
+        assert svc.capture_dataset_image() is None
+
+
+class TestCornersToNative:
+    def test_center_size_form(self):
+        cx, cy, w, h = _corners_to_native(0.25, 0.5, 0.75, 1.0)
+        assert (cx, cy) == (pytest.approx(0.5), pytest.approx(0.75))
+        assert (w, h) == (pytest.approx(0.5), pytest.approx(0.5))
+
+    def test_result_is_clamped(self):
+        cx, cy, w, h = _corners_to_native(-0.1, -0.1, 1.1, 1.1)
+        for v in (cx, cy, w, h):
+            assert 0.0 <= v <= 1.0
+        assert (w, h) == (pytest.approx(1.0), pytest.approx(1.0))

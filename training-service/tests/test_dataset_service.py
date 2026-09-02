@@ -5,11 +5,14 @@ from types import SimpleNamespace
 import pytest
 import yaml
 from service.dataset_service import (
+    LEGACY_GEOMETRY,
     Box,
     DatasetError,
     DatasetService,
     ImageEntry,
     NamedBox,
+    geometry_for,
+    normalize_geometry,
     validate_dataset_name,
 )
 
@@ -73,8 +76,9 @@ class TestClassColorSuffix:
             entry = svc.add_image(b"img")
             svc.set_labels(entry.image_id, [Box(0, 0.5, 0.5, 0.2, 0.2)])
 
-        yaml_path = svc.build_split("job-1")
-        with open(yaml_path) as f:
+        result = svc.build_split("job-1")
+        assert result.geometry == "frames"
+        with open(result.yaml_path) as f:
             data = yaml.safe_load(f)
 
         assert data["nc"] == 2
@@ -242,3 +246,163 @@ class TestMetaCorruptionIsReported:
             ds.meta()
         assert (root / "meta.json.corrupt").exists(), "evidence must survive"
         assert any("corrupt" in r.message for r in caplog.records)
+
+
+class TestGeometryHelpers:
+    def test_geometry_for_size(self):
+        assert geometry_for(640) == {"letterbox": 640}
+        assert geometry_for(1280) == {"letterbox": 1280}
+        assert geometry_for(0) == {"native": True}
+        assert geometry_for(-1) == {"native": True}
+
+    def test_normalize_unknown_values_fall_back_to_legacy(self):
+        for bad in (None, {}, [], "native", {"letterbox": "x"}, {"letterbox": 0},
+                    {"native": False}):
+            assert normalize_geometry(bad) == LEGACY_GEOMETRY
+        assert normalize_geometry({"native": True, "letterbox": 640}) == {"native": True}
+        assert normalize_geometry({"letterbox": "1280"}) == {"letterbox": 1280}
+
+
+class TestDatasetGeometry:
+    def _ds(self, tmp_path, name="ds"):
+        return DatasetService(_DATASET_ID, str(tmp_path / name),
+                              config=SimpleNamespace(MIN_IMAGES=20))
+
+    def test_write_meta_records_the_given_geometry(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("Native", geometry={"native": True})
+        meta = json.loads((tmp_path / "ds" / "meta.json").read_text())
+        assert meta["geometry"] == {"native": True}
+        assert ds.geometry() == {"native": True}
+        assert ds.info()["geometry"] == {"native": True}
+
+    def test_write_meta_without_geometry_records_legacy_letterbox(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("Default")
+        meta = json.loads((tmp_path / "ds" / "meta.json").read_text())
+        assert meta["geometry"] == {"letterbox": 640}
+
+    def test_geometry_is_fixed_at_creation(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("D", geometry={"letterbox": 640})
+        ds.write_meta("D renamed", geometry={"native": True})
+        assert ds.geometry() == {"letterbox": 640}
+
+    def test_legacy_meta_without_key_reads_as_letterbox_640(self, tmp_path):
+        root = tmp_path / "ds"
+        root.mkdir()
+        (root / "meta.json").write_text(
+            json.dumps({"name": "Old", "created_at": 1.0, "cover_image_id": ""}))
+        ds = self._ds(tmp_path)
+        assert ds.geometry() == {"letterbox": 640}
+        ds.check_geometry(640)  # must not raise
+        with pytest.raises(DatasetError, match="640×640 letterboxed"):
+            ds.check_geometry(0)
+
+    def test_legacy_meta_is_backfilled_on_the_next_save(self, tmp_path):
+        root = tmp_path / "ds"
+        root.mkdir()
+        (root / "meta.json").write_text(
+            json.dumps({"name": "Old", "created_at": 1.0, "cover_image_id": ""}))
+        ds = self._ds(tmp_path)
+        ds.rename("Still old")
+        meta = json.loads((root / "meta.json").read_text())
+        assert meta["geometry"] == {"letterbox": 640}
+        assert meta["name"] == "Still old"
+
+    def test_check_geometry_accepts_a_match(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("Native", geometry={"native": True})
+        ds.check_geometry(0)
+        ds.write_meta("Boxed", geometry={"letterbox": 640})  # different dataset
+        self._ds(tmp_path, "other").write_meta("Boxed", geometry={"letterbox": 640})
+        self._ds(tmp_path, "other").check_geometry(640)
+
+    def test_check_geometry_rejects_letterbox_dataset_in_native_mode(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("Shop floor", geometry={"letterbox": 640})
+        with pytest.raises(DatasetError) as exc:
+            ds.check_geometry(0)
+        msg = str(exc.value)
+        assert "Shop floor" in msg
+        assert "640×640 letterboxed images" in msg
+        assert "TRAIN_DATASET_IMG_SIZE=640" in msg
+        assert "create a new dataset" in msg
+
+    def test_check_geometry_rejects_native_dataset_in_letterbox_mode(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("Hi-res", geometry={"native": True})
+        with pytest.raises(DatasetError) as exc:
+            ds.check_geometry(640)
+        msg = str(exc.value)
+        assert "native-resolution images" in msg
+        assert "TRAIN_DATASET_IMG_SIZE=0" in msg
+
+    def test_check_geometry_rejects_a_different_square(self, tmp_path):
+        ds = self._ds(tmp_path)
+        ds.write_meta("D", geometry={"letterbox": 640})
+        with pytest.raises(DatasetError, match="TRAIN_DATASET_IMG_SIZE=640"):
+            ds.check_geometry(1280)
+
+
+class TestBuildSplitTiles:
+    """``build_split`` with the default tile geometry (real JPEGs; cv2 needed)."""
+
+    def _service(self, tmp_path):
+        cfg = SimpleNamespace(runs_dir=str(tmp_path / "runs"))
+        svc = DatasetService(_DATASET_ID, str(tmp_path), config=cfg)
+        svc.add_class("logo")
+        return svc
+
+    def _add(self, svc, width, height, boxes):
+        cv2 = pytest.importorskip("cv2")
+        np = pytest.importorskip("numpy")
+        ok, buf = cv2.imencode(".jpg", np.full((height, width, 3), 90, dtype=np.uint8))
+        assert ok
+        entry = svc.add_image(buf.tobytes())
+        svc.set_labels(entry.image_id, boxes)
+        return entry.image_id
+
+    def test_native_frames_become_tile_crops_and_square_ones_stay_whole(self, tmp_path):
+        pytest.importorskip("cv2")
+        svc = self._service(tmp_path)
+        wide = [self._add(svc, 1280, 720, [Box(0, 0.5, 0.5, 0.1, 0.1)]) for _ in range(2)]
+        square = self._add(svc, 640, 640, [Box(0, 0.5, 0.5, 0.1, 0.1)])
+
+        result = svc.build_split("job-t", tile="auto")
+
+        assert result.geometry == "tiles:auto"
+        assert result.stats.tiles == 4 and result.stats.whole == 1
+        assert result.train_count + result.valid_count == 5
+        root = tmp_path / "runs" / "job-t" / "dataset"
+        files = sorted(p.name for split in ("train", "valid")
+                       for p in (root / split / "images").iterdir())
+        assert files == sorted([f"{i}_t{k}.jpg" for i in wide for k in (0, 1)]
+                               + [f"{square}.jpg"])
+        assert (root / "train" / "images" / f"{square}.jpg").is_symlink() or \
+            (root / "valid" / "images" / f"{square}.jpg").is_symlink()
+        # A crop's label is renormalised to the 720 px tile: 128 px wide box → 128/720.
+        crop_label = next(p for split in ("train", "valid")
+                          for p in (root / split / "labels").iterdir()
+                          if p.name == f"{wide[0]}_t0.txt")
+        w = float(crop_label.read_text().split()[3])
+        assert w == pytest.approx(128 / 720, abs=1e-3)
+
+    def test_tile_off_keeps_the_symlink_layout(self, tmp_path):
+        pytest.importorskip("cv2")
+        svc = self._service(tmp_path)
+        self._add(svc, 1280, 720, [Box(0, 0.5, 0.5, 0.1, 0.1)])
+        self._add(svc, 1280, 720, [Box(0, 0.5, 0.5, 0.1, 0.1)])
+        result = svc.build_split("job-w")
+        assert result.geometry == "frames" and result.stats.tiles == 0
+        root = tmp_path / "runs" / "job-w" / "dataset"
+        assert all(p.is_symlink() for split in ("train", "valid")
+                   for p in (root / split / "images").iterdir())
+
+    def test_all_images_kept_whole_reports_frames(self, tmp_path):
+        pytest.importorskip("cv2")
+        svc = self._service(tmp_path)
+        self._add(svc, 640, 640, [Box(0, 0.5, 0.5, 0.1, 0.1)])
+        self._add(svc, 640, 640, [Box(0, 0.5, 0.5, 0.1, 0.1)])
+        result = svc.build_split("job-l", tile="auto")
+        assert result.geometry == "frames" and result.stats.whole == 2

@@ -19,11 +19,14 @@ Setting the clock is a host operation: this module only decides *whether* to
 step and delegates to the privileged `os` agent over gRPC, the same way network
 and GPIO writes are delegated.
 """
+import enum
 import logging
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
+
+import grpc
 
 from .config import settings
 from .grpc_clients import clients, hw
@@ -79,7 +82,23 @@ def _rate_limited() -> bool:
         return False
 
 
-def apply_hub_time(raw: Optional[str], source: str, force: bool = False) -> bool:
+class StepOutcome(enum.Enum):
+    """What became of one attempt to adopt the hub's clock."""
+
+    APPLIED = "applied"          # the agent stepped the clock
+    SKIPPED = "skipped"          # nothing to do: junk stamp, small drift, rate limit
+    REJECTED = "rejected"        # the agent refused (below the floor, settime failed)
+    UNREACHABLE = "unreachable"  # no hardware agent answered at all
+
+
+# gRPC codes that mean "nobody is listening", as opposed to an answer we did not
+# like. A development host runs the gateway without the Jetson-only `os` agent
+# (docker-compose.dev.yml keeps `os-base` as a bare volume owner; scripts/dev.sh
+# never starts it), so this is a normal condition there.
+_UNREACHABLE_CODES = (grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED)
+
+
+def step_clock(raw: Optional[str], source: str, force: bool = False) -> StepOutcome:
     """Set the host clock from *raw* when it differs materially. Never raises.
 
     ``force`` for the pairing path: it happens once, and it must go through even
@@ -87,14 +106,18 @@ def apply_hub_time(raw: Optional[str], source: str, force: bool = False) -> bool
     clock floor the host restores at boot (see os-base/agent/time_agent.py). A
     device paired with an already-correct clock would otherwise have no floor
     until the save timer next fires.
+
+    The outcome tells an agent that *refused* apart from an agent that is not
+    there: the pairing path must abort on the former (a wrong clock strands the
+    device behind mTLS) but has nothing to gain from failing on the latter.
     """
     hub_time = parse_hub_time(raw)
     if hub_time is None:
-        return False
+        return StepOutcome.SKIPPED
     if not force and not should_step(hub_time):
-        return False
+        return StepOutcome.SKIPPED
     if not force and _rate_limited():
-        return False
+        return StepOutcome.SKIPPED
 
     epoch_millis = int(hub_time.timestamp() * 1000)
     try:
@@ -102,14 +125,26 @@ def apply_hub_time(raw: Optional[str], source: str, force: bool = False) -> bool
             hw.SystemTimeRequest(epoch_millis=epoch_millis, source=source),
             timeout=_RPC_TIMEOUT_SEC,
         )
+    except grpc.RpcError as ex:
+        code = ex.code() if isinstance(ex, grpc.Call) else None
+        if code in _UNREACHABLE_CODES:
+            logger.warning("clock: hardware agent unreachable (%s)", code)
+            return StepOutcome.UNREACHABLE
+        logger.warning("clock: time step failed: %s", ex)
+        return StepOutcome.REJECTED
     except Exception as ex:  # noqa: BLE001 — best-effort: never fail the hub's call
-        logger.warning("clock: could not reach the hardware agent (%s)", ex)
-        return False
+        logger.warning("clock: time step failed: %s", ex)
+        return StepOutcome.REJECTED
     if not result.success:
         logger.warning("clock: time step rejected: %s", result.message)
-        return False
+        return StepOutcome.REJECTED
     logger.info("clock: %s", result.message)
-    return True
+    return StepOutcome.APPLIED
+
+
+def apply_hub_time(raw: Optional[str], source: str, force: bool = False) -> bool:
+    """Boolean form of :func:`step_clock` for callers that only need "did it land"."""
+    return step_clock(raw, source, force) is StepOutcome.APPLIED
 
 
 def sync_from_request_headers(headers) -> None:

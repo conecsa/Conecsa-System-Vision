@@ -52,6 +52,41 @@ parallel TensorRT contexts / pipeline lanes (~1.8× GPU scaling at 2). See the
 module docstring of `api/services/processing_pipeline.py` for the threading
 model.
 
+**Tiled inference (SAHI-style)**: with `TILING_MODE=grid` (the default) the
+prepare stage slices the decoded frame into overlapping square tiles
+(`TILING_TILE`/`TILING_OVERLAP`, geometry from `conecsa_common.tiling` — the
+same Apache-2.0 module the training-service crops the dataset with, so the
+deployed layout is exactly the one trained on), each lane runs one
+inference per tile sequentially, and the
+postprocess stage shifts every tile's boxes back into frame space and
+removes cross-tile duplicates with a class-aware NMS (`TILING_MERGE_IOU`)
+before the ordinary overlay-threshold NMS, area filter and drawing. A small
+object then reaches the model at close to native scale instead of the
+full-frame downscale. The default tile side is `auto` — the frame's short
+side, resolved per frame — so the layout depends only on the camera's aspect
+ratio, never on its pixel count: any 16:9 camera gives two columns (K=2).
+Measured on a 1280×720 combined frame (two 720 px tiles) that runs at
+28.7 fps with two lanes on the Orin Nano for the same memory and power as a
+single inference (a third, full-frame tile fell to 18.8 fps and was
+dropped); the reported `inference_time` is the summed per-tile GPU time.
+`TILING_MODE=off` keeps the single full-frame inference for models trained
+on whole frames. A model only performs at the geometry it was trained at,
+so grid mode must be paired with a model trained on the same crops — the
+training-service does that by default (`TRAIN_TILE=auto`). Grid mode needs
+`PROCESSING_DECODE_SCALE=1` — tiles cut from a reduced-scale frame defeat
+the point (a warning is logged).
+
+**Model settings sidecar**: each model's `weights.settings.json` carries its
+thresholds, camera and stereo snapshot, plus two informational fields the
+`.pt` conversion writes: `imgsz` (the export size) and
+`training.geometry` (`frames`, `tiles:auto` or `tiles:<px>`, as declared by
+the uploader — the training-service always does; browser and federated
+uploads leave it unknown). Nothing applies the geometry, but activating a
+model (`select`, snapshot restore, startup default) compares it with the
+live `TILING_MODE`/`TILING_TILE` and logs a warning when they disagree — a
+whole-frame model under grid tiling loses confidence inside the tiles, and
+a tile-trained model is blind on the whole letterboxed frame.
+
 **Detections snapshot**: `DetectionService.detections_snapshot()` backs the
 `Snapshot` RPC and `/api/v1/detections/snapshot`. Each detection carries its
 normalized `bbox` corners (`[x1, y1, x2, y2]`, 0..1), and besides the

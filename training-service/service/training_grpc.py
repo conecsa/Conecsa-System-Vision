@@ -33,11 +33,54 @@ import training_pb2 as pb  # noqa: E402
 import training_pb2_grpc as pb_grpc  # noqa: E402
 
 from .capture_service import corners_to_letterbox, letterbox_square  # noqa: E402
+from .dataset_import import image_dimensions_from_bytes  # noqa: E402
 from .dataset_service import Box, DatasetError, NamedBox  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 _EVENT_KEEPALIVE_S = 15.0
+
+
+def _clamp01(v: float) -> float:
+    """Clamp a normalized coordinate into 0..1."""
+    return min(1.0, max(0.0, float(v)))
+
+
+def _corners_to_native(x1: float, y1: float, x2: float, y2: float):
+    """Normalized corners → normalized YOLO (cx, cy, w, h) on the same image.
+
+    Native-geometry counterpart of ``corners_to_letterbox``: the stored image
+    is the uploaded one, so no remapping — just the center/size form.
+    """
+    x1, y1, x2, y2 = (_clamp01(v) for v in (x1, y1, x2, y2))
+    return (x1 + x2) / 2.0, (y1 + y2) / 2.0, _clamp01(x2 - x1), _clamp01(y2 - y1)
+
+
+def _geometry_dimensions(geometry: dict):
+    """Stored image size implied by a dataset ``geometry``, ``(0, 0)`` if unknown.
+
+    Every image of a letterboxed dataset is the recorded square. A native
+    dataset stores each upload at its own size, so there is no answer on
+    record; ``0`` is the proto's documented "unknown".
+    """
+    size = int(geometry.get("letterbox", 0))
+    return (size, size) if size > 0 else (0, 0)
+
+
+def _jpeg_dimensions(data: bytes):
+    """(width, height) of an encoded image, decoding only the header.
+
+    Falls back to a full decode when the header is unrecognized; returns
+    ``None`` when neither works.
+    """
+    dims = image_dimensions_from_bytes(data)
+    if dims is not None:
+        return dims
+    img = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    h, w = img.shape[:2]
+    return int(w), int(h)
 
 
 def _image_pb(entry) -> "pb.ImageInfo":
@@ -396,7 +439,8 @@ class TrainingControlServicer(pb_grpc.TrainingControlServicer):
         """RPC: capture image."""
         try:
             dataset = self._ds(request.dataset_id)
-            jpeg = self._app.capture_service.capture_letterboxed()
+            dataset.check_geometry(self._app.config.DATASET_IMG_SIZE)
+            jpeg = self._app.capture_service.capture_dataset_image()
             if jpeg is None:
                 context.set_code(grpc.StatusCode.UNAVAILABLE)
                 context.set_details("No camera frame available")
@@ -413,9 +457,17 @@ class TrainingControlServicer(pb_grpc.TrainingControlServicer):
             return pb.ImageInfo()
 
     def AddDatasetImage(self, request, context):
-        """RPC: add an externally captured, pre-labeled image to a dataset."""
+        """RPC: add an externally captured, pre-labeled image to a dataset.
+
+        The image is stored in the dataset's geometry: letterboxed to the
+        square (boxes remapped with ``corners_to_letterbox``) or, for a
+        native-resolution dataset, re-encoded as-is with the boxes converted
+        straight to center/size form.
+        """
         try:
             dataset = self._ds(request.dataset_id)
+            size = int(self._app.config.DATASET_IMG_SIZE)
+            dataset.check_geometry(size)
             img = cv2.imdecode(
                 np.frombuffer(request.jpeg, dtype=np.uint8), cv2.IMREAD_COLOR
             )
@@ -424,19 +476,25 @@ class TrainingControlServicer(pb_grpc.TrainingControlServicer):
                 context.set_details("Body is not a decodable image")
                 return pb.ImageInfo()
             src_h, src_w = img.shape[:2]
-            size = self._app.config.IMG_SIZE
-            boxed = letterbox_square(img, size)
-            ok, buf = cv2.imencode(".jpg", boxed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            if size > 0:
+                stored = letterbox_square(img, size)
+                boxes = [
+                    NamedBox(b.class_name,
+                             *corners_to_letterbox(b.x1, b.y1, b.x2, b.y2,
+                                                   src_w, src_h, size))
+                    for b in request.boxes
+                ]
+            else:
+                stored = img
+                boxes = [
+                    NamedBox(b.class_name, *_corners_to_native(b.x1, b.y1, b.x2, b.y2))
+                    for b in request.boxes
+                ]
+            ok, buf = cv2.imencode(".jpg", stored, [cv2.IMWRITE_JPEG_QUALITY, 90])
             if not ok:
                 context.set_code(grpc.StatusCode.INTERNAL)
-                context.set_details("Failed to encode the letterboxed image")
+                context.set_details("Failed to encode the dataset image")
                 return pb.ImageInfo()
-            boxes = [
-                NamedBox(b.class_name,
-                         *corners_to_letterbox(b.x1, b.y1, b.x2, b.y2,
-                                               src_w, src_h, size))
-                for b in request.boxes
-            ]
             entry = dataset.add_labeled_image(buf.tobytes(), boxes)
             self._app.event_service.publish(
                 "dataset_changed", keys=["dataset"],
@@ -459,12 +517,21 @@ class TrainingControlServicer(pb_grpc.TrainingControlServicer):
         return pb.ImageList(images=[_image_pb(e) for e in entries])
 
     def GetImage(self, request, context):
-        """RPC: get image."""
+        """RPC: get image (``width``/``height`` are the stored dimensions).
+
+        An unreadable blob is still returned rather than failing the fetch.
+        Its dimensions then come from the dataset's recorded geometry: the
+        letterbox square when there is one, else ``0x0`` for a native
+        dataset, where nothing on record knows the size (the proto documents
+        0 as "unknown").
+        """
         try:
-            data = self._ds(request.dataset_id).get_image_bytes(request.image_id)
-            size = self._app.config.IMG_SIZE
+            dataset = self._ds(request.dataset_id)
+            data = dataset.get_image_bytes(request.image_id)
+            dims = _jpeg_dimensions(data) or _geometry_dimensions(dataset.geometry())
+            width, height = dims
             return pb.ImageBlob(image_id=request.image_id, jpeg=data,
-                                width=size, height=size)
+                                width=width, height=height)
         except DatasetError as exc:
             context.set_code(grpc.StatusCode.NOT_FOUND)
             context.set_details(str(exc))

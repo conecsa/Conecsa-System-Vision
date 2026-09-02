@@ -3,6 +3,7 @@ deletion and download."""
 import json
 import logging
 import os
+import re
 
 import grpc
 from flask import Response, request
@@ -36,9 +37,21 @@ def list_models():
     ]})
 
 
-def _upload_stream(filename, imgsz, file_stream):
+# Training geometry a client may declare on upload (see ModelUploadMeta in
+# proto/inference.proto); anything else is treated as "unknown".
+_TRAIN_GEOMETRY_RE = re.compile(r"^(frames|tiles:(auto|[1-9]\d*))$")
+
+
+def _train_geometry_from_form(value) -> str:
+    """The declared training geometry, or ``""`` when absent or malformed."""
+    text = (value or "").strip().lower()
+    return text if _TRAIN_GEOMETRY_RE.match(text) else ""
+
+
+def _upload_stream(filename, imgsz, file_stream, train_geometry=""):
     """Yield ModelChunk messages (metadata first, then file chunks) for the upload RPC."""
-    yield inf.ModelChunk(meta=inf.ModelUploadMeta(filename=filename, imgsz=imgsz))
+    yield inf.ModelChunk(meta=inf.ModelUploadMeta(filename=filename, imgsz=imgsz,
+                                                  train_geometry=train_geometry))
     while True:
         chunk = file_stream.read(1 << 20)
         if not chunk:
@@ -56,9 +69,10 @@ def upload_model():
         imgsz = int(request.form.get("imgsz", 640))
     except (TypeError, ValueError):
         imgsz = 640
+    train_geometry = _train_geometry_from_form(request.form.get("train_geometry"))
     try:
         result = clients.model.UploadModel(
-            _upload_stream(file.filename, imgsz, file.stream))
+            _upload_stream(file.filename, imgsz, file.stream, train_geometry))
     except grpc.RpcError as exc:
         return _grpc_error(exc)
     try:

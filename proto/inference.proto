@@ -130,6 +130,13 @@ message ModelName { string name = 1; }
 message ModelUploadMeta {
   string filename = 1;
   uint32 imgsz = 2;             // image size for .pt conversion (0 → service default 640)
+  // Geometry the weights were trained on, recorded in the model's settings
+  // sidecar so activation can warn when it disagrees with TILING_MODE:
+  // "frames" (whole images), "tiles:auto" (square crops spanning the image's
+  // short side — the training-service default) or "tiles:<px>". Empty =
+  // unknown (browser uploads, federated results): recorded as nothing, never
+  // warned about.
+  string train_geometry = 3;
 }
 message ModelChunk {
   oneof data {

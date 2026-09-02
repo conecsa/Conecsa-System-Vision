@@ -1,6 +1,7 @@
 //! Leptos UI components for the web frontend.
 
 use leptos::prelude::*;
+use wasm_bindgen::JsCast;
 
 use crate::api::{training_image_url, LabelBox};
 use crate::i18n::*;
@@ -43,10 +44,18 @@ pub(super) fn LabelCanvas(
     // Draft rectangle while drawing a new box, normalized (x0, y0, x1, y1).
     let draft = RwSignal::new(None::<(f32, f32, f32, f32)>);
 
-    // The canvas is a width-driven square in a fixed, non-scrolling viewport.
-    // Cap its width by the available height so it always fits vertically; when
-    // the SAM panel is open it eats ~11rem more, so shrink the canvas to match
-    // (16rem ≈ top bar + toolbar + status; +11rem for the SAM controls).
+    // The canvas is width-driven in a fixed, non-scrolling viewport. Cap its
+    // width by the available height so it always fits vertically; when the SAM
+    // panel is open it eats ~11rem more, so shrink the canvas to match (16rem ≈
+    // top bar + toolbar + status; +11rem for the SAM controls). The image
+    // branch scales this cap by the image's aspect ratio (see `canvas_box`).
+    let canvas_height_avail = move || {
+        if sam_mode.get() {
+            "100dvh - 27rem"
+        } else {
+            "100dvh - 16rem"
+        }
+    };
     let canvas_cap = move || {
         if sam_mode.get() {
             "max-w-[calc(100dvh-27rem)]"
@@ -178,9 +187,9 @@ pub(super) fn LabelCanvas(
 
     view! {
         {move || match selected.get() {
-            // The square canvas is width-driven (aspect-square), but the app
-            // shell is a fixed, non-scrolling viewport — cap the width by the
-            // viewport height so the square always fits vertically.
+            // No image yet: a square placeholder, width-driven (aspect-square)
+            // and capped by the viewport height so it always fits vertically in
+            // the fixed, non-scrolling app shell.
             None => view! {
                 <div class=move || format!(
                     "ui-list-box aspect-square w-full {} mx-auto flex items-center justify-center text-sm ui-muted",
@@ -189,36 +198,82 @@ pub(super) fn LabelCanvas(
                     {t_string!(i18n, training::select_image_hint)}
                 </div>
             }.into_any(),
-            Some(image_id) => view! {
-                <div class=move || format!(
-                    "ui-media-bg relative aspect-square w-full {} mx-auto rounded overflow-hidden select-none",
-                    canvas_cap()
-                )>
-                    <img
-                        src=training_image_url(&dataset_id.get_value(), &image_id)
-                        class="absolute inset-0 w-full h-full pointer-events-none"
-                        alt=t_string!(i18n, training::labeling_image_alt)
-                        draggable="false"
-                    />
-                    // touch-none: claim the gesture so a finger-drag draws a box
-                    // instead of scrolling/zooming the page (browsers cancel
-                    // pointermove mid-pan otherwise).
-                    <svg
-                        class="absolute inset-0 w-full h-full cursor-crosshair touch-none"
-                        viewBox=format!("0 0 {} {}", VIEW, VIEW)
-                        on:pointerdown=on_pointer_down
-                        on:pointermove=on_pointer_move
-                        on:pointerup=commit_draft
-                        on:pointerleave=move |_| draft.set(None)
+            // Dataset images are not necessarily square (native-resolution
+            // datasets store the 16:9 stereo-combined frame), and the image is
+            // an `<img src=…>` — its size is only known once the browser has
+            // decoded it. Read natural_width/height on `load` and size the
+            // container by that ratio (square until then, so the layout does
+            // not jump to zero height); the `<img>` and `<svg>` both fill the
+            // container, so the picture is never distorted. The signal lives in
+            // this branch so switching images starts from the fallback again.
+            Some(image_id) => {
+                let img_size = RwSignal::new(None::<(u32, u32)>);
+                let on_img_load = move |ev: leptos::ev::Event| {
+                    let Some(img) = ev
+                        .target()
+                        .and_then(|t| t.dyn_into::<web_sys::HtmlImageElement>().ok())
+                    else {
+                        return;
+                    };
+                    let (w, h) = (img.natural_width(), img.natural_height());
+                    if w > 0 && h > 0 {
+                        img_size.set(Some((w, h)));
+                    }
+                };
+                let aspect = move || {
+                    img_size
+                        .get()
+                        .map(|(w, h)| format!("{w} / {h}"))
+                        .unwrap_or_else(|| "1 / 1".to_string())
+                };
+                // Height-fit cap scaled by the aspect ratio: a 16:9 image may be
+                // wider than the square cap and still fit the available height.
+                let canvas_box = move || {
+                    let (w, h) = img_size.get().unwrap_or((1, 1));
+                    format!("calc(({}) * {w} / {h})", canvas_height_avail())
+                };
+                view! {
+                    <div
+                        class="ui-media-bg relative w-full mx-auto rounded overflow-hidden select-none"
+                        style=("aspect-ratio", aspect)
+                        style=("max-width", canvas_box)
                     >
-                        {committed_boxes_layer(i18n, boxes, selected_box, sam_mode, classes, on_box_down, on_handle_down)}
-                        {suggestions_layer(sam_suggestions)}
-                        {points_layer(sam_points)}
-                        {draft_layer(draft, classes, active_class)}
-                    </svg>
-                </div>
-                {status_bar(i18n, boxes, classes, active_class)}
-            }.into_any(),
+                        <img
+                            src=training_image_url(&dataset_id.get_value(), &image_id)
+                            class="absolute inset-0 w-full h-full pointer-events-none"
+                            alt=t_string!(i18n, training::labeling_image_alt)
+                            draggable="false"
+                            on:load=on_img_load
+                        />
+                        // touch-none: claim the gesture so a finger-drag draws a box
+                        // instead of scrolling/zooming the page (browsers cancel
+                        // pointermove mid-pan otherwise).
+                        //
+                        // preserveAspectRatio="none": the 640-unit viewBox stretches
+                        // to the same box as the image, so normalized cx/cy/w/h keep
+                        // mapping 1:1 onto the picture with no per-axis scale in the
+                        // drawing or pointer math (`norm_coords` measures x and y
+                        // against the svg's own width and height). Side effect: on a
+                        // 16:9 image the square resize handles render slightly wider
+                        // than tall — acceptable.
+                        <svg
+                            class="absolute inset-0 w-full h-full cursor-crosshair touch-none"
+                            viewBox=format!("0 0 {} {}", VIEW, VIEW)
+                            preserveAspectRatio="none"
+                            on:pointerdown=on_pointer_down
+                            on:pointermove=on_pointer_move
+                            on:pointerup=commit_draft
+                            on:pointerleave=move |_| draft.set(None)
+                        >
+                            {committed_boxes_layer(i18n, boxes, selected_box, sam_mode, classes, on_box_down, on_handle_down)}
+                            {suggestions_layer(sam_suggestions)}
+                            {points_layer(sam_points)}
+                            {draft_layer(draft, classes, active_class)}
+                        </svg>
+                    </div>
+                    {status_bar(i18n, boxes, classes, active_class)}
+                }.into_any()
+            }
         }}
     }
 }

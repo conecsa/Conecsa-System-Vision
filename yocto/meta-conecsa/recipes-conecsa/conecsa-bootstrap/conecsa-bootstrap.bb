@@ -66,8 +66,10 @@ do_install() {
 
     # Override of the zram-swap-init default (meta-openembedded zram_0.2.bb).
     # Without this file zram allocates 100% of RAM with lz4; with it the
-    # device drops to 50% of RAM (algorithm stays lz4 because the L4T kernel
-    # was not built with CONFIG_CRYPTO_ZSTD).
+    # device drops to 50% of RAM with lzo-rle (the only algorithm every
+    # fielded kernel is guaranteed to have — neither CONFIG_CRYPTO_ZSTD nor,
+    # on some kernels, CONFIG_CRYPTO_LZ4 is built in; a wrong algorithm makes
+    # zram-swap fail at boot and the device runs swapless).
     install -d ${D}${sysconfdir}/default
     install -m 0644 ${WORKDIR}/zram.conf \
         ${D}${sysconfdir}/default/zram

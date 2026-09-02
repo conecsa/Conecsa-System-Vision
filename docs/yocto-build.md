@@ -3,7 +3,7 @@
 Custom image to host the Conecsa Object Detection application in Docker
 containers, replacing the stock NVIDIA JetPack 6.2.2 (Ubuntu 22.04, ~2245
 packages) with a lean Yocto rootfs based on `tegra-demo-distro` branch
-`scarthgap` (Yocto 5.0, L4T R36.5.0 = JetPack 6.2.2 — same CUDA 12.6 /
+`scarthgap` (Yocto 5.0, L4T R36.5.x — currently R36.5.2, JetPack 6.2 line — same CUDA 12.6 /
 TensorRT 10.3 / cuDNN 9 versions that `docker-compose.yml` expects).
 
 ## Architecture

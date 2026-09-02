@@ -16,6 +16,7 @@ uploading, stash the resulting last.pt back into the weights store
 import json
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -30,6 +31,7 @@ import requests
 from .config import Config
 from .dataset_registry import DatasetRegistry
 from .dataset_service import DatasetError, DatasetService, validate_model_name
+from .train_overrides import OverrideError, parse_overrides
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,10 @@ class TrainingJob:
     # a stashed checkpoint instead of going through the model-upload route.
     federated: bool = False
     result_weights_id: str = ""
+    # Effective training geometry of the split ("frames" | "tiles:auto" |
+    # "tiles:<px>"), declared on the model upload so the inference-service
+    # can warn when TILING_MODE disagrees with it.
+    geometry: str = ""
 
 
 class TrainingService:
@@ -114,6 +120,12 @@ class TrainingService:
         patience = patience or self._config.DEFAULT_PATIENCE
         if epochs < 1 or epochs > 1000:
             raise DatasetError("Epochs must be between 1 and 1000")
+        # A malformed TRAIN_OVERRIDES must fail the RPC, not a job that has
+        # already frozen its dataset and released the inference runtime.
+        try:
+            parse_overrides(getattr(self._config, "TRAIN_OVERRIDES", ""))
+        except OverrideError as exc:
+            raise DatasetError(f"Invalid TRAIN_OVERRIDES: {exc}") from exc
         dataset = self._registry.get(dataset_id)
 
         # Resolve the starting checkpoint up front so an unknown id fails the
@@ -233,24 +245,20 @@ class TrainingService:
         dataset = self._job_dataset
         assert dataset is not None
         try:
-            data_yaml = dataset.build_split(job_id)
-            self._set(status="training", progress=5,
+            self._set(message="Slicing the dataset into training tiles…")
+            split = dataset.build_split(
+                job_id,
+                tile=getattr(self._config, "TRAIN_TILE", "auto"),
+                overlap=getattr(self._config, "TRAIN_TILE_OVERLAP", 0.2),
+                min_visible=getattr(self._config, "TRAIN_TILE_MIN_VISIBLE", 0.25),
+            )
+            self._set(status="training", progress=5, geometry=split.geometry,
                       message=f"Training {epochs} epochs…")
 
-            cmd = [
-                sys.executable, "-m", "service._yolo_trainer",
-                "--data", data_yaml,
-                "--weights", weights_path,
-                "--epochs", str(epochs),
-                "--patience", str(patience),
-                "--batch", str(batch),
-                "--imgsz", str(self._config.IMG_SIZE),
-                "--workers", str(self._config.TRAIN_WORKERS),
-                "--project", self._config.runs_dir,
-                "--name", job_id,
-            ]
-            if not self._config.TRAIN_AMP:
-                cmd.append("--no-amp")
+            cmd = build_trainer_argv(
+                self._config, split.yaml_path, weights_path,
+                epochs=epochs, patience=patience, batch=batch, job_id=job_id,
+            )
 
             env = os.environ.copy()
             env["PYTHONPATH"] = "/app/training-service"
@@ -323,6 +331,11 @@ class TrainingService:
                 self._process = None
                 self._job_dataset = None
             self._registry.release(dataset)
+            # The split is job-scoped scratch: tile crops are real JPEGs (the
+            # whole-frame path only symlinks) and nothing reads them once the
+            # trainer has exited — best.pt lives in runs/<job>/weights.
+            shutil.rmtree(os.path.join(self._config.runs_dir, job_id, "dataset"),
+                          ignore_errors=True)
 
     def _consume_stdout(self, proc: subprocess.Popen,
                         epochs: int) -> "tuple[Optional[str], Optional[str]]":
@@ -396,7 +409,9 @@ class TrainingService:
 
         The gateway relays to ModelControl.UploadModel on the inference-service,
         which saves it under /data/models and starts the pt→onnx→engine
-        conversion job (returned here so the frontend can track it).
+        conversion job (returned here so the frontend can track it). The
+        split's effective geometry rides along so the model's settings
+        sidecar records what it was trained on.
         """
         job = self.get_job()
         self._set(status="uploading", progress=97,
@@ -406,7 +421,8 @@ class TrainingService:
             resp = requests.post(
                 url,
                 files={"file": (f"{job.model_name}.pt", f)},
-                data={"imgsz": str(self._config.IMG_SIZE)},
+                data={"imgsz": str(self._config.IMG_SIZE),
+                      "train_geometry": job.geometry},
                 timeout=120,
             )
         if resp.status_code not in (200, 202):
@@ -417,3 +433,31 @@ class TrainingService:
             return str(resp.json().get("job_id") or "")
         except ValueError:
             return ""
+
+
+def build_trainer_argv(config, data_yaml: str, weights_path: str, *,
+                       epochs: int, patience: int, batch: int, job_id: str) -> list:
+    """Argument vector for the ``service._yolo_trainer`` subprocess.
+
+    Pure so tests can assert the contract without spawning anything. The
+    model input size comes from ``config.IMG_SIZE`` (``TRAIN_IMG_SIZE``) and
+    every allowlisted ``TRAIN_OVERRIDES`` pair is forwarded as its own
+    ``--override key=value`` (already validated in ``TrainingService.start``).
+    """
+    cmd = [
+        sys.executable, "-m", "service._yolo_trainer",
+        "--data", data_yaml,
+        "--weights", weights_path,
+        "--epochs", str(epochs),
+        "--patience", str(patience),
+        "--batch", str(batch),
+        "--imgsz", str(config.IMG_SIZE),
+        "--workers", str(config.TRAIN_WORKERS),
+        "--project", config.runs_dir,
+        "--name", job_id,
+    ]
+    if not config.TRAIN_AMP:
+        cmd.append("--no-amp")
+    for key, value in parse_overrides(getattr(config, "TRAIN_OVERRIDES", "")).items():
+        cmd.extend(["--override", f"{key}={value}"])
+    return cmd

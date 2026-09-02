@@ -65,6 +65,16 @@ class ConversionJob:
     message: str = ""
     error: Optional[str] = None
     engine_filename: Optional[str] = None  # basename after conversion
+    # Export image size of a .pt → .onnx → .engine job (640 or 1280); None for
+    # .onnx → .engine-only jobs, whose size
+    # is baked into the ONNX graph. Informational: lets the gateway/UI/logs tell
+    # a 640 build from a 1280 build.
+    imgsz: Optional[int] = None
+    # Geometry the weights were trained on, as declared by the uploader
+    # ("frames", "tiles:auto", "tiles:<px>"; see ModelUploadMeta). Recorded in
+    # the settings sidecar next to imgsz so activation can warn when it
+    # disagrees with TILING_MODE. None = unknown (browser / federated uploads).
+    train_geometry: Optional[str] = None
     started_at: float = field(default_factory=time.time)  # UNIX timestamp (seconds)
     # Age is reported from the monotonic clock, never from ``started_at``: the
     # device has no RTC battery, so the hub steps CLOCK_REALTIME whenever it
@@ -206,6 +216,8 @@ class ConversionService:
             "message": job.message,
             "error": job.error,
             "engine_filename": job.engine_filename,
+            "imgsz": job.imgsz,
+            "train_geometry": job.train_geometry,
             "started_at": job.started_at,
             "elapsed_secs": job.elapsed_secs,
         }
@@ -256,6 +268,7 @@ class ConversionService:
         original_filename: str,
         model_directory: str,
         imgsz: int = 640,
+        train_geometry: Optional[str] = None,
     ) -> ConversionJob:
         """
         Enqueue an async .pt → .onnx → .engine conversion.
@@ -273,6 +286,8 @@ class ConversionService:
             pt_path=pt_path,
             onnx_path=onnx_path,
             engine_path=engine_path,
+            imgsz=imgsz,
+            train_geometry=train_geometry,
         )
 
         with self._lock:
@@ -284,12 +299,13 @@ class ConversionService:
 
         thread = threading.Thread(
             target=self._run_job,
-            args=(job_id, imgsz),
+            args=(job_id,),
             daemon=True,
             name=f"conversion-{job_id[:8]}",
         )
         thread.start()
-        logger.info(f"Conversion job {job_id} started for {original_filename}")
+        logger.info(f"Conversion job {job_id} started for {original_filename} "
+                    f"(imgsz={imgsz}, train_geometry={train_geometry})")
         return job
 
     def get_job(self, job_id: str) -> Optional[ConversionJob]:
@@ -352,17 +368,18 @@ class ConversionService:
     # Internal – worker thread
     # ------------------------------------------------------------------
 
-    def _run_job(self, job_id: str, imgsz: Optional[int] = None) -> None:
+    def _run_job(self, job_id: str) -> None:
         """
         Worker thread for all conversion paths.
 
-        imgsz=None  → .onnx → .engine only
-        imgsz=<int> → .pt  → .onnx → .engine
+        job.imgsz=None  → .onnx → .engine only
+        job.imgsz=<int> → .pt  → .onnx → .engine
         """
         with self._lock:
             job = self._jobs.get(job_id)
         if job is None:
             return
+        imgsz = job.imgsz
 
         try:
             # ── Step 1 (PT path only): .pt → .onnx ────────────────────
@@ -399,6 +416,16 @@ class ConversionService:
                              progress=engine_progress,
                              message="Building TensorRT .engine (this may take several minutes)…")
             _build_engine_from_onnx(job.onnx_path, job.engine_path)
+
+            # Record the export size and the training geometry next to the
+            # engine (the settings file is otherwise created on first
+            # activation, which is also where the geometry is checked).
+            if imgsz is not None:
+                from api.services.model_service import ModelService
+                from api.services.model_settings_service import ModelSettingsService
+                ModelSettingsService.record_training(
+                    ModelService.settings_file_for_model(job.engine_path), imgsz,
+                    job.train_geometry)
 
             # ── Cleanup intermediate files ─────────────────────────────
             for path in tmp_files:

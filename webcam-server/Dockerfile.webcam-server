@@ -2,9 +2,19 @@
 # Target: Jetson Orin Nano (linux/arm64 aarch64)
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM rust:slim-bookworm AS builder
+# Pinned rust version (repo rule: never a floating rust tag), on the bookworm
+# variant: the runtime stage is debian:bookworm-slim, so the builder must stay
+# on the same Debian release for a compatible glibc.
+FROM rust:1.98-slim-bookworm AS builder
 
 WORKDIR /app
+
+# Fetch apt packages over https only — some networks drop plain http, which
+# would fail the build. The rust base ships ca-certificates, so TLS already
+# works here; the grep guard fails the build if a base-image update ever
+# reintroduces an http source this sed does not catch.
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+    && ! grep -rq 'http://' /etc/apt/sources.list.d/
 
 # System dependencies required for camera access, SSL, and protobuf compilation
 RUN apt-get update && apt-get install -y \
@@ -48,6 +58,14 @@ RUN touch webcam-server/src/main.rs && \
 FROM debian:bookworm-slim
 
 WORKDIR /app
+
+# Fetch apt packages over https only — some networks drop plain http, which
+# would fail the build. debian:bookworm-slim ships no CA bundle, so seed it
+# from the builder stage; the ca-certificates package installed just below
+# then owns /etc/ssl/certs from there on.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN sed -i 's|http://|https://|g' /etc/apt/sources.list.d/debian.sources \
+    && ! grep -rq 'http://' /etc/apt/sources.list.d/
 
 # Runtime dependencies: SSL, V4L2 stack + v4l2-ctl for exposure control
 RUN apt-get update && apt-get install -y \

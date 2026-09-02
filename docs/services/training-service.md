@@ -21,16 +21,57 @@ control plane.
   inference-service so captured images match the geometry the live detector
   sees (there is no runtime sync — and the code defaults differ when unset:
   `blend` here vs `none` in the inference-service).
+- **Dataset geometry** — `TRAIN_DATASET_IMG_SIZE` decides how every image
+  (capture, ZIP import, hub ingest) is stored. The default `0` stores the
+  stereo-combined frame at its native resolution (e.g. 1280×720) and leaves
+  letterboxing to ultralytics at train time, so the same dataset trains any
+  `imgsz` on real pixels (training at 1280 on a 640×640 dataset would only
+  upscale already-downscaled pixels). A value > 0 reproduces the legacy
+  format: the frame letterboxed to that square with YOLO gray padding
+  (historically `640`, identical to what the detector sees at `imgsz=640`);
+  legacy datasets remain usable but keep their recorded geometry. Labels are
+  always normalized to the stored image, and `GetImage` reports the real
+  stored `width`/`height`. Each dataset records its geometry in `meta.json`
+  (`{"letterbox": 640}` or `{"native": true}`; a legacy dataset without the
+  key is letterbox 640) when it is created, and the service refuses to add
+  images to a dataset whose recorded geometry differs from the current
+  setting (`FAILED_PRECONDITION`: *dataset X stores 640×640 letterboxed
+  images; set TRAIN_DATASET_IMG_SIZE=640 or create a new dataset*), so a
+  dataset never mixes formats.
+- **Training geometry** — `TRAIN_TILE` decides what the trainer actually sees.
+  The inference-service slices every frame into square tiles by default
+  (`TILING_MODE=grid`, tile side = the frame's short side) and a model only
+  performs at the scale it was trained at, so with the default `auto` the
+  split builder (`DatasetService.build_split`) writes every image of both the
+  train and the valid split as its tile crops — the same
+  `conecsa_common.tiling` grid, side = the image's short side, so any 16:9
+  camera gives two crops per frame at any resolution — with the labels
+  clipped and re-normalised per tile (`service/tile_split.py`): a box
+  survives in a tile when at least `TRAIN_TILE_MIN_VISIBLE` of its area lies
+  inside it, a tile whose only content was a smaller fragment is skipped
+  rather than taught as background, and a tile no box touches is a genuine
+  negative. Validation runs on tiles too, so the reported metrics describe
+  the geometry the model is deployed in. Images the grid cannot slice (a
+  legacy 640×640 letterboxed dataset, a square image) are symlinked whole,
+  as is everything with `TRAIN_TILE=off` — the pairing for a device running
+  `TILING_MODE=off`. The crops are job scratch under `runs/<job>/dataset/`
+  and are removed when the job ends (`best.pt` stays under
+  `runs/<job>/weights/`). The effective geometry (`frames`, `tiles:auto` or
+  `tiles:<px>`) is declared on the `best.pt` upload and recorded in the
+  model's settings sidecar, where the inference-service checks it against
+  `TILING_MODE` on activation.
 - **Replicate** — duplicates a labeled image (the JPEG plus its YOLO labels)
   1–50 times to quickly reach the training minimum (`TRAIN_MIN_IMAGES`, 20).
   Replicas are flagged in `meta.json` (`replica_image_ids`) so the gallery can
   mark them; an unlabeled source or an already-replicated image is rejected.
 - **Pre-labeled ingest** (`AddDatasetImage`) — accepts an externally captured
   image plus pre-labels carried by **class name** with normalized corner
-  coordinates on the uploaded image. The JPEG is letterboxed to 640×640 like a
-  camera capture, the coordinates are mapped into the letterbox space
-  (`corners_to_letterbox` mirrors `letterbox_square`'s exact rounding), and
-  class names are resolved against `classes.json` — missing names are
+  coordinates on the uploaded image. The JPEG is stored in the dataset's
+  geometry like a camera capture: letterboxed to the square with the
+  coordinates mapped into letterbox space (`corners_to_letterbox` mirrors
+  `letterbox_square`'s exact rounding), or kept at its own resolution with the
+  corners simply converted to center/size form. Class names are resolved
+  against `classes.json` — missing names are
   appended — so the image arrives already labeled. This is how the hub feeds a
   detection record's clean frame back into a dataset for retraining; the
   operator only adjusts the class in the label editor when the model got it

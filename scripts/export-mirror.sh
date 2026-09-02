@@ -47,6 +47,8 @@ done
 #   Cargo.toml/Cargo.lock (root) — workspace whose only member is hub-vision;
 #                          system-vision and webcam-server are standalone
 #   .github/             — CI runs the hub suites; public CI is authored separately
+#   AGENTS.md, CLAUDE.md, .agents/, .claude/ — agent instructions, knowledge
+#                          base and Claude Code harness stay private
 ALLOWLIST=(
   proto
   i18n
@@ -96,6 +98,13 @@ FORBIDDEN_PATH_PATTERNS=(
   'build-hub'
   'hub-kiosk'
   'Good Times'
+  # Private agent context: AGENTS.md/CLAUDE.md (instructions), .agents/ (the
+  # internal knowledge base) and .claude/ (Claude Code harness) never reach the
+  # mirror; the gate makes a future allowlist mistake fail loudly.
+  '^AGENTS\.md$'
+  '^CLAUDE\.md$'
+  '^\.agents(/|$)'
+  '^\.claude(/|$)'
 )
 
 # Content mentions worth eyeballing before a push (informational only).

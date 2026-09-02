@@ -9,7 +9,9 @@ use crate::i18n::*;
 
 /// Live combined-camera preview + capture button. The preview MJPEG comes from
 /// the gateway (CPU-only stereo combine), so it works while inference is
-/// stopped; captured frames land in the dataset at 640×640 letterboxed.
+/// stopped; captured frames land in the dataset at its storage geometry
+/// (640×640 letterboxed historically, or the native 16:9 frame for
+/// native-resolution datasets — the label canvas follows the real size).
 ///
 /// The standard image-adjustment overlay (exposure / RGB / gamma / gain) sits
 /// on the preview so the operator can tune the camera before capturing —

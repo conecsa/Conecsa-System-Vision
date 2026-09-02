@@ -346,18 +346,27 @@ def complete():
         # hub call as "certificate is not yet valid" — pairing would appear to
         # succeed and the device would go offline for good. This is also the
         # only channel that works while the clock is wrong (no validation here).
-        # A failed step is fatal for the same reason: enrolling with a wrong
+        # A refused step is fatal for the same reason: enrolling with a wrong
         # clock strands the device, so install nothing and let the hub retry.
-        # A hub too old to send hub_time at all is let through (it cannot be
-        # asked to retry with data it does not have).
+        # Two cases are let through with a warning instead, because retrying
+        # cannot fix them: a hub too old to send hub_time at all, and a host
+        # with no hardware agent to set the clock (the dev stack runs the
+        # gateway without the Jetson-only `os` agent; on a device the agent is
+        # always up, and the persisted clock floor covers a flashed unit).
         hub_time = body.get("hub_time")
         if hub_time is None:
             logger.warning("pairing without hub_time (old hub?); "
                            "clock not synchronized")
-        elif not clock.apply_hub_time(hub_time, "pairing", force=True):
-            logger.error("pairing aborted: could not adopt the hub's clock")
-            return jsonify({"error": "could not synchronize the device clock; "
-                                     "nothing was installed — retry pairing"}), 500
+        else:
+            outcome = clock.step_clock(hub_time, "pairing", force=True)
+            if outcome is clock.StepOutcome.UNREACHABLE:
+                logger.warning("pairing without clock sync: no hardware agent "
+                               "reachable (development host?)")
+            elif outcome is not clock.StepOutcome.APPLIED:
+                logger.error("pairing aborted: could not adopt the hub's clock (%s)",
+                             outcome.value)
+                return jsonify({"error": "could not synchronize the device clock; "
+                                         "nothing was installed — retry pairing"}), 500
 
         _install_certs(device_cert, ca_cert)
     except Exception as ex:  # noqa: BLE001

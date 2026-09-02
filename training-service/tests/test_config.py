@@ -1,5 +1,6 @@
 """Unit tests for the training-service config helpers and path properties."""
-from service.config import Config, _env_float, _env_int
+import pytest
+from service.config import Config, _env_float, _env_int, parse_train_tile
 
 
 class TestEnvFloat:
@@ -55,3 +56,60 @@ class TestPathProperties:
 
         reloaded = importlib.reload(config_module)
         assert reloaded.Config.STEREO_COMBINE == "none"
+
+
+class TestTrainingKnobs:
+    def _reload(self, monkeypatch, **env):
+        import importlib
+
+        import service.config as config_module
+
+        for name in ("TRAIN_IMG_SIZE", "TRAIN_DATASET_IMG_SIZE", "TRAIN_OVERRIDES",
+                     "TRAIN_TILE", "TRAIN_TILE_OVERLAP", "TRAIN_TILE_MIN_VISIBLE"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        return importlib.reload(config_module).Config
+
+    def test_defaults_are_640_training_on_native_datasets(self, monkeypatch):
+        cfg = self._reload(monkeypatch)
+        assert cfg.IMG_SIZE == 640
+        assert cfg.DATASET_IMG_SIZE == 0
+        assert cfg.TRAIN_OVERRIDES == ""
+
+    def test_default_geometry_is_auto_tiles(self, monkeypatch):
+        cfg = self._reload(monkeypatch)
+        assert cfg.TRAIN_TILE == "auto"
+        assert cfg.TRAIN_TILE_OVERLAP == 0.2
+        assert cfg.TRAIN_TILE_MIN_VISIBLE == 0.25
+
+    def test_tile_env_overrides(self, monkeypatch):
+        cfg = self._reload(monkeypatch, TRAIN_TILE="720", TRAIN_TILE_OVERLAP="0.3",
+                           TRAIN_TILE_MIN_VISIBLE="0.5")
+        assert (cfg.TRAIN_TILE, cfg.TRAIN_TILE_OVERLAP, cfg.TRAIN_TILE_MIN_VISIBLE) == (720, 0.3, 0.5)
+
+    def test_out_of_range_fractions_fall_back(self, monkeypatch):
+        cfg = self._reload(monkeypatch, TRAIN_TILE_OVERLAP="1.0", TRAIN_TILE_MIN_VISIBLE="0")
+        assert (cfg.TRAIN_TILE_OVERLAP, cfg.TRAIN_TILE_MIN_VISIBLE) == (0.2, 0.25)
+
+    def test_env_overrides(self, monkeypatch):
+        cfg = self._reload(
+            monkeypatch,
+            TRAIN_IMG_SIZE="1280",
+            TRAIN_DATASET_IMG_SIZE="640",
+            TRAIN_OVERRIDES="freeze=10",
+        )
+        assert cfg.IMG_SIZE == 1280
+        assert cfg.DATASET_IMG_SIZE == 640
+        assert cfg.TRAIN_OVERRIDES == "freeze=10"
+
+
+class TestParseTrainTile:
+    @pytest.mark.parametrize("raw,expected", [
+        (None, "auto"), ("", "auto"), ("auto", "auto"), (" Auto ", "auto"),
+        ("off", None), ("0", None), ("none", None),
+        ("720", 720), ("1080", 1080),
+        ("abc", "auto"), ("-5", "auto"), ("7.5", "auto"),
+    ])
+    def test_values(self, raw, expected):
+        assert parse_train_tile(raw) == expected

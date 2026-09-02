@@ -69,6 +69,77 @@ class TestReloadFromDisk:
         assert r2.list()[0]["name"] == "Persisted"
 
 
+class TestGeometry:
+    def _registry(self, tmp_path, dataset_img_size):
+        cfg = Config()
+        cfg.DATA_DIR = str(tmp_path)
+        cfg.DATASET_IMG_SIZE = dataset_img_size
+        return DatasetRegistry(cfg, event_service=None)
+
+    def test_default_config_creates_native_datasets(self, registry):
+        meta = registry.create("Native")
+        assert registry.get(meta["dataset_id"]).geometry() == {"native": True}
+        assert registry.get(meta["dataset_id"]).info()["geometry"] == {"native": True}
+
+    def test_letterbox_config_creates_letterbox_640_datasets(self, tmp_path):
+        reg = self._registry(tmp_path, 640)
+        meta = reg.create("Boxed")
+        assert reg.get(meta["dataset_id"]).geometry() == {"letterbox": 640}
+
+    def test_guard_refuses_a_dataset_from_the_other_geometry(self, tmp_path):
+        boxed = self._registry(tmp_path, 640).create("Boxed")
+        native_reg = self._registry(tmp_path, 0)
+        with pytest.raises(DatasetError, match="TRAIN_DATASET_IMG_SIZE=640"):
+            native_reg.get(boxed["dataset_id"]).check_geometry(
+                native_reg._config.DATASET_IMG_SIZE)
+        fresh = native_reg.create("Native")
+        native_reg.get(fresh["dataset_id"]).check_geometry(0)
+
+    def test_legacy_migration_records_letterbox_640_even_in_native_mode(self, tmp_path):
+        cfg = Config()
+        cfg.DATA_DIR = str(tmp_path)
+        cfg.DATASET_IMG_SIZE = 0
+        legacy = tmp_path / "dataset"
+        (legacy / "images").mkdir(parents=True)
+        (legacy / "labels").mkdir()
+        reg = DatasetRegistry(cfg, event_service=None)
+        (meta,) = reg.list()
+        assert meta["name"] == "Default"
+        assert reg.get(meta["dataset_id"]).geometry() == {"letterbox": 640}
+
+    def test_import_uses_the_dataset_geometry_not_the_model_size(self, tmp_path,
+                                                                 monkeypatch):
+        import zipfile
+
+        import cv2
+        import numpy as np
+        from service import dataset_registry
+
+        seen = {}
+
+        def fake_import(zip_path, dest_dir, img_size=640, max_total_mb=512):
+            seen["img_size"] = img_size
+            import os
+            os.makedirs(os.path.join(dest_dir, "images"), exist_ok=True)
+            os.makedirs(os.path.join(dest_dir, "labels"), exist_ok=True)
+            return ["cap"], 0
+
+        monkeypatch.setattr(dataset_registry, "import_dataset_zip", fake_import)
+        cfg = Config()
+        cfg.DATA_DIR = str(tmp_path)
+        cfg.IMG_SIZE = 1280
+        cfg.DATASET_IMG_SIZE = 0
+        reg = DatasetRegistry(cfg, event_service=None)
+        zip_path = tmp_path / "ds.zip"
+        with zipfile.ZipFile(zip_path, "w") as z:
+            ok, buf = cv2.imencode(".jpg", np.zeros((8, 8, 3), dtype=np.uint8))
+            assert ok
+            z.writestr("images/a.jpg", buf.tobytes())
+        meta = reg.import_zip("Imported", str(zip_path))
+        assert seen["img_size"] == 0
+        assert reg.get(meta["dataset_id"]).geometry() == {"native": True}
+
+
 class TestFreezeDeleteRace:
     """One lock owns the frozen transition (REFACTORING.md M4): a delete can
     never interleave between a job validating a dataset and freezing it."""

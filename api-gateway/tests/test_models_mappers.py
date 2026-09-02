@@ -1,7 +1,8 @@
 """Unit tests for the model/conversion gRPC message -> JSON mapper."""
 from types import SimpleNamespace
 
-from gateway.controllers.models import _conversion_dict
+import pytest
+from gateway.controllers.models import _conversion_dict, _train_geometry_from_form
 
 
 def _job(**kw):
@@ -41,3 +42,13 @@ class TestConversionDict:
         # not share. A 1970 `started_at` must not disturb `elapsed_secs`.
         d = _conversion_dict(_job(started_at=0.0))
         assert d["elapsed_secs"] == 87.25
+
+
+class TestTrainGeometryForm:
+    @pytest.mark.parametrize("raw,expected", [
+        ("frames", "frames"), ("tiles:auto", "tiles:auto"), (" Tiles:720 ", "tiles:720"),
+        (None, ""), ("", ""), ("tiles:0", ""), ("tiles:07", ""), ("grid", ""),
+        ("frames; drop", ""),
+    ])
+    def test_only_well_formed_values_pass(self, raw, expected):
+        assert _train_geometry_from_form(raw) == expected

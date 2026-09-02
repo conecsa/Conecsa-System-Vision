@@ -44,9 +44,63 @@ import time
 from typing import Optional
 
 # noinspection PyPackageRequirements
+import cv2  # Package is included on os build.
+
+# noinspection PyPackageRequirements
 import numpy as np  # Package is included on os build.
 
 logger = logging.getLogger(__name__)
+
+# Accepted PROCESSED_OUTPUT_SCALE factors (1 = publish the drawn frame as is).
+_OUTPUT_SCALE_FACTORS = (1, 2, 4)
+DEFAULT_OUTPUT_SCALE = 1
+
+
+def output_scale_from_env() -> int:
+    """Downscale factor for the published processed stream (``PROCESSED_OUTPUT_SCALE``).
+
+    Why: stage D (JPEG encode + publish) is single-threaded. Tiled inference (the
+    default) and 1280 models need ``PROCESSING_DECODE_SCALE=1`` so the detector
+    sees the full frame, but then
+    the drawn frame handed to stage D is 4x the pixels of a half-res decode
+    and encode becomes the pipeline bottleneck. Shrinking the *drawn* frame
+    right before encode keeps the published stream (and the processed SHM
+    slot usage) small while inference still runs on the full frame. 1
+    (default) publishes the frame as drawn; 2 and 4 are accepted, anything
+    else falls back to 1. A q85 JPEG of a 720p frame is ~150-300 KB and of a
+    1080p frame ~300-600 KB, both inside the default 1 MiB
+    ``PROCESSED_SHM_SLOT_BYTES`` slot (conecsa_shm.processed_ring), so for
+    those cameras this is about CPU time, not slot capacity; a frame that
+    exceeds the slot is dropped (logged once), so a larger camera needs a
+    bigger slot or a higher factor here.
+    """
+    raw = os.environ.get("PROCESSED_OUTPUT_SCALE", str(DEFAULT_OUTPUT_SCALE)).strip()
+    try:
+        factor = int(raw)
+    except ValueError:
+        logger.warning("PROCESSED_OUTPUT_SCALE=%r is not an int; using %d", raw, DEFAULT_OUTPUT_SCALE)
+        return DEFAULT_OUTPUT_SCALE
+    if factor not in _OUTPUT_SCALE_FACTORS:
+        logger.warning("PROCESSED_OUTPUT_SCALE=%d not in %s; using %d",
+                       factor, _OUTPUT_SCALE_FACTORS, DEFAULT_OUTPUT_SCALE)
+        return DEFAULT_OUTPUT_SCALE
+    return factor
+
+
+def downscale_for_publish(frame: np.ndarray, factor: int) -> np.ndarray:
+    """Shrink an already-drawn frame by ``factor`` (INTER_AREA) before JPEG encode.
+
+    Returns the frame untouched for ``factor <= 1`` or when it is already too
+    small to shrink; overlays are drawn upstream at full size and simply get
+    scaled with the pixels.
+    """
+    if factor <= 1:
+        return frame
+    h, w = frame.shape[:2]
+    new_w, new_h = w // factor, h // factor
+    if new_w < 1 or new_h < 1:
+        return frame
+    return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
 
 class ProcessingPipelineService:
@@ -96,6 +150,9 @@ class ProcessingPipelineService:
             self._proc_shm = ProcessedFrameWriter()
         except Exception as exc:  # noqa: BLE001
             logger.warning("[Pipeline] processed-frame SHM unavailable: %s", exc)
+
+        # Published-frame downscale factor, read once (see output_scale_from_env).
+        self._output_scale = output_scale_from_env()
 
         # Last successfully encoded frame — re-emitted while output is frozen
         # (GPIO trigger pin low, or detection trigger disabled).
@@ -301,7 +358,11 @@ class ProcessingPipelineService:
             if item is None:
                 continue
             seq, out = item
-            encoded = self._codec.encode_frame(out)
+            # Shrink before encode: with PROCESSING_DECODE_SCALE=1 (the default,
+            # required by tiled inference) this single-threaded stage encodes the
+            # frame at camera resolution; PROCESSED_OUTPUT_SCALE=2 halves that work.
+            # No-op at the default factor 1.
+            encoded = self._codec.encode_frame(downscale_for_publish(out, self._output_scale))
             if encoded:
                 self._frozen = encoded
                 self._publish(encoded, seq)
@@ -313,7 +374,8 @@ class ProcessingPipelineService:
     def _emit_off(self, frame: np.ndarray, seq: int) -> None:
         """Draw the 'Detection Off' overlay, encode, publish and cache as frozen."""
         off = self._overlay.draw_detection_off_overlay(frame)
-        encoded = self._codec.encode_frame(off)
+        # Same downscale as the live path so the stream keeps one resolution.
+        encoded = self._codec.encode_frame(downscale_for_publish(off, self._output_scale))
         if encoded:
             self._frozen = encoded
             self._publish(encoded, seq)

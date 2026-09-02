@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import grpc
 import pytest
 from flask import Flask
 from gateway import clock
@@ -31,6 +32,43 @@ def hardware(monkeypatch):
         monkeypatch.setattr(clock, "_last_attempt", {"at": float("-inf")})
         return fake
     return _install
+
+
+class _FailedCall(grpc.RpcError, grpc.Call):
+    """A failed unary call the way grpcio raises it: an RpcError that is also a
+    Call, so the handler can ask it for its status code."""
+
+    def __init__(self, code: grpc.StatusCode):
+        super().__init__()
+        self._code = code
+
+    def code(self):
+        return self._code
+
+    def details(self):
+        return self._code.name
+
+    def initial_metadata(self):
+        return ()
+
+    def trailing_metadata(self):
+        return ()
+
+    def is_active(self):
+        return False
+
+    def time_remaining(self):
+        return 0.0
+
+    def cancel(self):
+        return False
+
+    def add_callback(self, callback):
+        return False
+
+
+def _rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    return _FailedCall(code)
 
 
 def _stamp(delta_seconds: float) -> str:
@@ -115,6 +153,41 @@ class TestApplyHubTime:
         hardware(raises=RuntimeError("channel closed"))
         # Never propagates: this runs inline on the hub's request.
         assert clock.apply_hub_time(_stamp(7200), "hub-poll") is False
+
+
+class TestStepClock:
+    """The pairing path needs to know *why* a step did not land: an agent that
+    refused is fatal, an agent that is not there (development host) is not."""
+
+    def test_applied(self, hardware):
+        hardware()
+        assert clock.step_clock(_stamp(7200), "pairing", force=True) is clock.StepOutcome.APPLIED
+
+    def test_a_refusal_is_rejected(self, hardware):
+        hardware(success=False, message="older than the persisted floor")
+        assert clock.step_clock(_stamp(-7200), "pairing", force=True) is clock.StepOutcome.REJECTED
+
+    @pytest.mark.parametrize("code", [grpc.StatusCode.UNAVAILABLE,
+                                      grpc.StatusCode.DEADLINE_EXCEEDED])
+    def test_no_agent_is_unreachable(self, hardware, code):
+        hardware(raises=_rpc_error(code))
+        assert clock.step_clock(_stamp(7200), "pairing", force=True) is clock.StepOutcome.UNREACHABLE
+
+    def test_an_agent_error_is_rejected_not_unreachable(self, hardware):
+        # The agent answered — with a failure. Only "nobody listening" is
+        # allowed to wave a pairing through without a clock.
+        hardware(raises=_rpc_error(grpc.StatusCode.INTERNAL))
+        assert clock.step_clock(_stamp(7200), "pairing", force=True) is clock.StepOutcome.REJECTED
+
+    def test_a_non_grpc_failure_is_rejected(self, hardware):
+        hardware(raises=RuntimeError("channel closed"))
+        assert clock.step_clock(_stamp(7200), "pairing", force=True) is clock.StepOutcome.REJECTED
+
+    def test_junk_and_small_drift_are_skipped(self, hardware):
+        fake = hardware()
+        assert clock.step_clock("yesterday", "hub-poll") is clock.StepOutcome.SKIPPED
+        assert clock.step_clock(_stamp(1), "hub-poll") is clock.StepOutcome.SKIPPED
+        assert fake.calls == []
 
 
 class TestSyncFromRequestHeaders:

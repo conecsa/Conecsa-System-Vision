@@ -1,17 +1,23 @@
 //! Pure geometry + interaction primitives shared by the label-editor pieces.
 //!
 //! No Leptos/DOM state here beyond reading a `MouseEvent` — just the math for
-//! YOLO boxes (normalized cx/cy/w/h on the square 640×640 canvas) and the
-//! move/resize drag model.
+//! YOLO boxes (normalized cx/cy/w/h in 0..1 relative to the stored image,
+//! drawn on a 640-unit viewBox stretched over the image's real aspect ratio)
+//! and the move/resize drag model. Nothing here assumes a square image.
 
 use wasm_bindgen::JsCast;
 
-/// Side of the square SVG viewBox (also the dataset image size).
+/// Side of the SVG viewBox. Normalized coordinates are drawn on this
+/// 640-unit viewBox, which `preserveAspectRatio="none"` stretches over the
+/// image's real aspect ratio — it is a coordinate space, not the image size
+/// (native-resolution datasets are 16:9, not 640×640).
 pub(super) const VIEW: f32 = 640.0;
 /// Minimum normalized box side; smaller draws/resizes are rejected/clamped.
 pub(super) const MIN_SIZE: f32 = 0.01;
-/// Resize-handle side in viewBox units (~1.4% of the 640 canvas) — kept small
-/// so it doesn't cover up smaller labels while editing.
+/// Resize-handle side in viewBox units (~1.4% of the 640-unit viewBox) — kept
+/// small so it doesn't cover up smaller labels while editing. On a non-square
+/// image the viewBox is stretched, so the handles render slightly non-square
+/// (wider than tall on 16:9) — acceptable.
 pub(super) const HANDLE: f32 = 9.0;
 /// Pointer travel (normalized) past which a box mousedown counts as a drag
 /// rather than a plain select — below it, no save fires.
@@ -57,7 +63,9 @@ pub(super) struct BoxDrag {
 /// Mouse position normalized to 0..1 within the SVG canvas. Resolves the
 /// enclosing `<svg>` from `event.target` (the real element under the cursor —
 /// a child `<rect>`, handle, or the svg itself), so the scale is measured
-/// against the full square canvas. NB: `current_target` is unusable here —
+/// against the full canvas. X and Y are normalized independently against the
+/// svg's own width and height, so a non-square canvas needs no extra
+/// correction. NB: `current_target` is unusable here —
 /// Leptos delegates events on `window`, so it is the window, not the svg.
 pub(super) fn norm_coords(ev: &leptos::ev::MouseEvent) -> Option<(f32, f32)> {
     let target: web_sys::Element = ev.target()?.dyn_into().ok()?;
